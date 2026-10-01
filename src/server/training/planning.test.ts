@@ -35,7 +35,7 @@ async function custom(userId = alice, loadType = "WEIGHTED") {
 }
 
 describe("planning persistence on an isolated PostgreSQL engine", () => {
-  it("migrates exactly four tables with RLS and no client grants", async () => {
+  it("migrates planning and snapshot tables with RLS and no client grants", async () => {
     const tables = await db.postgres.query<{
       tablename: string;
       rowsecurity: boolean;
@@ -44,8 +44,10 @@ describe("planning persistence on an isolated PostgreSQL engine", () => {
     );
     expect(tables.rows.map((row) => row.tablename)).toEqual([
       "exercise",
+      "session_exercise",
       "template_exercise",
       "workout_program",
+      "workout_session",
       "workout_template",
     ]);
     expect(tables.rows.every((row) => row.rowsecurity)).toBe(true);

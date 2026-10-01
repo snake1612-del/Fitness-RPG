@@ -6,6 +6,7 @@ import type {
   PlanningTransaction,
 } from "@/application/training/ports";
 import { notFound } from "@/domain/training/planning";
+import { withUserTransaction } from "../db/user-transaction";
 import {
   exercise,
   templateExercise,
@@ -18,12 +19,7 @@ export function createPlanningRepository(
 ): PlanningRepository {
   return {
     forUser(userId, work) {
-      return database.transaction(async (tx) => {
-        // Transaction-scoped: works across instances and releases on commit/rollback.
-        // Also serializes reads with writes so nested plans have a consistent order.
-        await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`,
-        );
+      return withUserTransaction(database, userId, async (tx) => {
         const ownProgramIds = tx
           .select({ id: workoutProgram.id })
           .from(workoutProgram)

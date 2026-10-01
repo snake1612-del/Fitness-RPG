@@ -124,8 +124,7 @@ must be verified separately with project credentials.
 
 ## Training planning developer workflow
 
-Planning is available through authenticated server APIs. No planning UI or
-workout execution is implemented. All payloads use camelCase; ownership comes
+Planning is available through authenticated server APIs. No planning UI is implemented. All payloads use camelCase; ownership comes
 from the verified Supabase identity, never from request payloads.
 
 | Method | Endpoint | Capability |
@@ -176,5 +175,40 @@ role grants; the server DB role must have trusted table privileges and RLS bypas
 (or table ownership). Direct browser table access is intentionally unavailable.
 No built-in catalog seed is included.
 
+## Start and Resume developer workflow
+
+Slice 3 adds relational `WorkoutSession` and `SessionExercise` snapshots.
+Authenticated `POST /api/sessions/start` accepts `{ "templateId": "<uuid>" }`.
+A new Start requires an owned Template in the current Active Program and returns
+201 with `{ "session": { ... }, "resumed": false }`. If an ACTIVE Session already
+exists, Start returns that saved Session with 200 and `resumed: true`, including
+when a different valid Template ID is supplied.
+
+`GET /api/sessions/active` returns the Session object directly, or JSON `null`
+when no ACTIVE Session exists. The Session contains source
+IDs and name snapshots, `status`, `startedAt`, `plannedWorkingSetQuota` (`P`) and
+ordered `exercises`. Each entry contains the saved Exercise identity/name/load
+type, `plannedWorkingSets`, rep range, exact decimal-string `targetLoadKg`,
+nullable integer `targetRir`, rest and notes. Resume reads only these saved rows.
+Later planning edits or Exercise archival do not change the snapshot or `P`.
+
+Start and planning mutations share a user-scoped transaction advisory lock.
+Session creation and all snapshot rows commit atomically; a partial unique index
+allows at most one ACTIVE Session per user. A uniqueness race resumes the winning
+Session after rollback. Database triggers freeze `P` and validate the initial
+snapshot quota at commit. Empty Templates start with `P = 0`.
+
+These endpoints require cookie Auth and reject ownership fields in payloads.
+Unauthenticated requests return 401, malformed input 400, unavailable/foreign
+Templates 404, controlled conflicts 409 and infrastructure failures a safe 503.
+Responses are not cached. No workout UI, Set logging or Finish/Cancel action is
+implemented.
+
+Migrations `0002_workout_snapshot.sql` and `0003_workout_snapshot_integrity.sql`
+add only the two snapshot tables and their integrity rules. They enable RLS and
+revoke browser role access, including execution of the new SQL helpers. The
+isolated PGlite tests cover snapshots, retry/race recovery, rollback and historical
+independence. Independent PostgreSQL connections and live Supabase services
+still require separate verification with non-production credentials.
 
 ---

@@ -4,17 +4,21 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool, type QueryConfig } from "pg";
 import { createPlanningApplication } from "@/application/training/planning";
 import { createPlanningRepository } from "@/server/training/repository";
+import { createWorkoutApplication } from "@/application/training/workout";
+import { createWorkoutRepository } from "@/server/training/workout-repository";
 
 export async function planningDatabase() {
   const postgres = await PGlite.create();
   // Simulate old Supabase default grants; migrations must revoke browser access.
   await postgres.exec(
-    "CREATE ROLE anon; CREATE ROLE authenticated; ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated;",
+    "CREATE ROLE anon; CREATE ROLE authenticated; ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated; ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;",
   );
   for (const migration of readMigrationFiles({ migrationsFolder: "drizzle" })) {
     for (const statement of migration.sql) await postgres.exec(statement);
   }
   const pool = new Pool({ max: 1 });
+  let queryHook:
+    ((text: string, values: unknown[]) => Promise<unknown>) | undefined;
   let tail = Promise.resolve();
   Object.defineProperty(pool, "connect", {
     value: async () => {
@@ -36,6 +40,8 @@ export async function planningDatabase() {
               "Named prepared query is incompatible with this test boundary",
             );
           // Drizzle expects node-postgres timestamp strings and NUMERIC strings.
+          const intercepted = await queryHook?.(config.text, values);
+          if (intercepted !== undefined) return intercepted;
           return postgres.query(config.text, values, {
             rowMode: config.rowMode === "array" ? "array" : "object",
             parsers: {
@@ -50,12 +56,19 @@ export async function planningDatabase() {
   });
   const database = drizzle({ client: pool });
   const app = createPlanningApplication(createPlanningRepository(database));
+  const workouts = createWorkoutApplication(createWorkoutRepository(database));
   return {
     postgres,
     app,
+    workouts,
+    database,
+    setQueryHook(hook?: typeof queryHook) {
+      queryHook = hook;
+    },
     async reset() {
+      queryHook = undefined;
       await postgres.exec(
-        "TRUNCATE template_exercise, workout_template, workout_program, exercise;",
+        "TRUNCATE session_exercise, workout_session, template_exercise, workout_template, workout_program, exercise;",
       );
     },
     async close() {
