@@ -48,6 +48,7 @@ describe("planning persistence on an isolated PostgreSQL engine", () => {
       "template_exercise",
       "workout_program",
       "workout_session",
+      "workout_set",
       "workout_template",
     ]);
     expect(tables.rows.every((row) => row.rowsecurity)).toBe(true);

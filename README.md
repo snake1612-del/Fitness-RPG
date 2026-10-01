@@ -201,8 +201,8 @@ snapshot quota at commit. Empty Templates start with `P = 0`.
 These endpoints require cookie Auth and reject ownership fields in payloads.
 Unauthenticated requests return 401, malformed input 400, unavailable/foreign
 Templates 404, controlled conflicts 409 and infrastructure failures a safe 503.
-Responses are not cached. No workout UI, Set logging or Finish/Cancel action is
-implemented.
+Responses are not cached. No workout UI is implemented. The execution and
+lifecycle APIs are described below.
 
 Migrations `0002_workout_snapshot.sql` and `0003_workout_snapshot_integrity.sql`
 add only the two snapshot tables and their integrity rules. They enable RLS and
@@ -210,5 +210,66 @@ revoke browser role access, including execution of the new SQL helpers. The
 isolated PGlite tests cover snapshots, retry/race recovery, rollback and historical
 independence. Independent PostgreSQL connections and live Supabase services
 still require separate verification with non-production credentials.
+
+## Workout execution and lifecycle developer workflow
+
+PR #4A adds actual/draft Sets, active corrections, Finish/Cancel and saved History.
+All routes require the existing verified cookie identity and server-side ownership.
+
+| Method | Endpoint | Capability |
+| --- | --- | --- |
+| POST | `/api/session-exercises/:id/sets` | Create/retry an actual draft Set |
+| PATCH / DELETE | `/api/sets/:id` | Correct active values / remove an erroneous Set |
+| POST | `/api/sets/:id/complete` | Explicitly complete a valid Set |
+| POST | `/api/sets/:id/uncomplete` | Return a Set to draft |
+| POST | `/api/sessions/:id/finish` | Accept a partial or full workout |
+| POST | `/api/sessions/:id/cancel` | Cancel the attempt and release the ACTIVE slot |
+| GET | `/api/sessions` | Finished History, newest original Finish order first |
+| GET | `/api/sessions/:id` | Own Finished snapshot and actual Sets |
+
+Create payload: `{ "id": "<client-generated-uuid>", "type": "WORKING",
+"loadKg": "72.5", "reps": 8, "rir": null }`. Only `id` is required;
+type defaults to WORKING and values may be null while draft. WARM_UP is supported.
+Positions are assigned by the server. No planned placeholder Sets are created.
+PATCH accepts only type/loadKg/reps/rir. Numeric inputs are exact decimal strings;
+reps, when supplied, must be positive integers and RIR is nullable integer 0–10.
+
+Create returns 201 with the saved Set, including on retry. Reusing that UUID for
+the same entry returns the current Set without overwriting subsequent corrections.
+Reusing it for a different entry or after deletion returns a controlled conflict.
+Deletion retains a UUID tombstone (`deleted_at`) so delayed create retries cannot
+resurrect removed Sets. Deleted Sets are excluded from Resume and History; their
+positions are not reused. DELETE returns 204 and is idempotent while ACTIVE.
+
+Values do not imply completion. Complete requires reps and, for WEIGHTED, a load
+(zero is valid). BODYWEIGHT has no external load. ASSISTED_BODYWEIGHT requires
+positive assistance. Validation uses only the saved SessionExercise load type.
+Repeated Complete preserves the original completedAt. Active edits to completed
+Sets must remain valid; uncomplete first to clear required values. All Set writes
+require an owned ACTIVE Session; terminal Session writes return 409.
+
+Finish accepts `{ "timeZone": "Europe/Moscow" }`, validated by Intl. It returns
+the saved Session, freezing finishedAt, timezone, UTC offset in seconds, local
+trainingDay and original finishOrder exactly once. finishOrder is a BIGINT
+sequence represented as a JSON string, with no floating-point conversion.
+Repeated Finish preserves that context even when a different valid timezone is
+supplied. Drafts remain drafts; partial/empty Finish is valid. Cancel is retry-safe
+and cannot convert a Finished Session. Finish cannot convert a Cancelled Session.
+
+Resume now includes non-deleted actual Sets ordered inside each snapshot entry.
+History uses only saved snapshot/Set facts. Its list returns Session headers;
+detail returns the full aggregate. Cancelled/ACTIVE Sessions are excluded from
+completed History (detail returns 404). No rotation, Progress or XP is calculated.
+
+Migrations `0004_workout_execution.sql` and
+`0005_workout_execution_integrity.sql` add Set/lifecycle fields, the Finish order
+sequence, checks/indexes, terminal-identity protection and active Set integrity.
+New helpers and sequence revoke browser-role privileges. The trusted runtime role
+needs sequence USAGE as well as table privileges/RLS bypass (or ownership).
+Existing migration files
+and frozen specifications are unchanged. PGlite tests cover these migrations and
+production repositories, including route-handler composition, rollback and
+snapshot-independent History. Live Supabase/PostgreSQL and independent connection
+concurrency remain separate Milestone A acceptance checks.
 
 ---

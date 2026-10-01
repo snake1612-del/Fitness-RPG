@@ -6,12 +6,14 @@ import { createPlanningApplication } from "@/application/training/planning";
 import { createPlanningRepository } from "@/server/training/repository";
 import { createWorkoutApplication } from "@/application/training/workout";
 import { createWorkoutRepository } from "@/server/training/workout-repository";
+import { createExecutionApplication } from "@/application/training/execution";
+import { createExecutionRepository } from "@/server/training/execution-repository";
 
 export async function planningDatabase() {
   const postgres = await PGlite.create();
   // Simulate old Supabase default grants; migrations must revoke browser access.
   await postgres.exec(
-    "CREATE ROLE anon; CREATE ROLE authenticated; ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated; ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;",
+    "CREATE ROLE anon; CREATE ROLE authenticated; ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated; ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon, authenticated; ALTER DEFAULT PRIVILEGES GRANT ALL ON SEQUENCES TO anon, authenticated;",
   );
   for (const migration of readMigrationFiles({ migrationsFolder: "drizzle" })) {
     for (const statement of migration.sql) await postgres.exec(statement);
@@ -45,6 +47,7 @@ export async function planningDatabase() {
           return postgres.query(config.text, values, {
             rowMode: config.rowMode === "array" ? "array" : "object",
             parsers: {
+              20: (value) => value,
               1700: (value) => value,
               1184: (value) => value,
               1114: (value) => value,
@@ -57,10 +60,14 @@ export async function planningDatabase() {
   const database = drizzle({ client: pool });
   const app = createPlanningApplication(createPlanningRepository(database));
   const workouts = createWorkoutApplication(createWorkoutRepository(database));
+  const execution = createExecutionApplication(
+    createExecutionRepository(database),
+  );
   return {
     postgres,
     app,
     workouts,
+    execution,
     database,
     setQueryHook(hook?: typeof queryHook) {
       queryHook = hook;
@@ -68,7 +75,7 @@ export async function planningDatabase() {
     async reset() {
       queryHook = undefined;
       await postgres.exec(
-        "TRUNCATE session_exercise, workout_session, template_exercise, workout_template, workout_program, exercise;",
+        "TRUNCATE workout_set, session_exercise, workout_session, template_exercise, workout_template, workout_program, exercise;",
       );
     },
     async close() {
