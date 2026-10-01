@@ -1,17 +1,355 @@
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family: Arial, Helvetica, sans-serif;
+  background: #0e1218;
+  color: #edf0f4;
+  --muted: #aab3c1;
+  --accent: #c7ee9b;
 }
-
+* {
+  box-sizing: border-box;
+}
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button,
+.button {
+  min-height: 48px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 13px 18px;
+  background: var(--accent);
+  color: #14200e;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.secondary {
+  color: #edf0f4;
+  background: #242d39;
+  border-color: #3d4858;
+}
+.quiet {
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 8px;
+}
+.danger {
+  color: #ffb4b4;
+  background: #351d26;
+}
+a {
+  color: var(--accent);
+  text-underline-offset: 4px;
+}
+:focus-visible {
+  outline: 3px solid #b9dffb;
+  outline-offset: 3px;
+}
+.app-shell {
+  max-width: 760px;
+  margin: auto;
+  padding: 0 18px 120px;
+}
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 88px;
+}
+.brand {
+  color: #edf0f4;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+}
+.brand span {
+  color: var(--accent);
+  font-size: 12px;
+  border: 1px solid #465940;
+  padding: 5px;
+  border-radius: 6px;
+}
+main {
+  width: 100%;
+}
+h1 {
+  font-size: clamp(30px, 7vw, 44px);
+  letter-spacing: -0.04em;
+  line-height: 1.12;
+  margin: 12px 0;
+}
+h2 {
+  font-size: 22px;
+  margin: 0 0 16px;
+  letter-spacing: -0.02em;
+}
+h3 {
+  font-size: 16px;
+  margin: 22px 0 12px;
+}
+p {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.lede {
+  color: var(--muted);
+  margin-bottom: 26px;
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+.card {
+  padding: 22px;
+  border: 1px solid #2b3543;
+  background: #171e28;
+  border-radius: 20px;
+  margin-bottom: 18px;
+}
+.hero {
+  background: linear-gradient(130deg, #222e26, #171e28 80%);
+}
+.hero .badge {
+  margin-bottom: 16px;
+}
+.hero .button,
+.hero button {
+  width: 100%;
+  margin: 10px 0 16px;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: #c4ccd7;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+input,
+select {
+  background: #0e151f;
+  border: 1px solid #425066;
+  color: #edf0f4;
+  min-height: 48px;
+  border-radius: 10px;
+  padding: 12px;
+  width: 100%;
+  min-width: 0;
+}
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.input-grid,
+.set-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+.section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.badge {
+  display: inline-block;
+  border: 1px solid #526040;
+  color: #c7ee9b;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 9px;
+  border-radius: 8px;
+}
+.planned {
+  background: #0f1620;
+  border-left: 3px solid #64758d;
+  padding: 14px;
+  color: #b8c3d2;
+  border-radius: 4px 10px 10px 4px;
+  font-size: 13px;
+}
+.planned p {
+  margin: 5px 0;
+}
+.set {
+  padding: 16px;
+  border: 1px solid #394353;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  overflow-wrap: anywhere;
+}
+.set .section-heading {
+  margin-bottom: 16px;
+}
+.completed {
+  border-color: #657f48;
+  background: #1c2a21;
+}
+.draft .badge {
+  color: #c5cdd8;
+  border-color: #536075;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.actions button {
+  flex: 1 0 auto;
+}
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.full {
+  width: 100%;
+}
+.feedback {
+  padding: 14px 16px;
+  border-radius: 12px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.error {
+  background: #361f27;
+  color: #ffc7c7;
+}
+.success {
+  background: #223124;
+  color: #c7ee9b;
+}
+.save-status {
+  position: sticky;
+  top: 8px;
+  background: #1e3024;
+  border: 1px solid #667d4f;
+  border-radius: 12px;
+  padding: 10px;
+  z-index: 2;
+}
+.confirmation {
+  border-color: #a5bb8b;
+  margin-top: 18px;
+}
+.page-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100%, 760px);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: #101721f5;
+  border-top: 1px solid #354152;
+  padding: 10px 8px max(12px, env(safe-area-inset-bottom));
+  z-index: 3;
+}
+.bottom-nav a {
+  color: #9ba8bb;
+  min-height: 48px;
   display: grid;
   place-items: center;
-  background: #f7f8fa;
-  color: #17212b;
+  text-decoration: none;
+  font-size: 12px;
+  border-radius: 12px;
 }
-
-main {
-  width: min(100% - 2rem, 34rem);
+.bottom-nav a[aria-current="page"] {
+  color: var(--accent);
+  background: #233025;
+}
+.history-link {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #edf0f4;
+  text-decoration: none;
+}
+.history-link span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.history-link .badge {
+  align-self: flex-start;
+  color: var(--accent);
+}
+.compact-list {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+}
+.compact-list li {
+  padding: 10px 0;
+  border-top: 1px solid #303a48;
+}
+.compact-list span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 5px;
+}
+.stack {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+.plan-preview {
+  border-top: 1px solid #303a48;
+  margin-top: 20px;
+}
+.plan-preview ol {
+  padding-left: 20px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.login {
+  margin-top: 28px;
+}
+.login button {
+  width: 100%;
+}
+@media (max-width: 380px) {
+  .app-shell {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .card {
+    padding: 16px;
+  }
+  .set {
+    padding: 12px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  a {
+    transition: background-color 0.15s;
+  }
 }
