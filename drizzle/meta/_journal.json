@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790801477219,
+      "tag": "0000_training_planning",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790801528141,
+      "tag": "0001_planning_integrity",
+      "breakpoints": true
+    }
+  ]
+}

@@ -11,12 +11,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "format:check": "prettier --check src drizzle.config.ts eslint.config.mjs package.json pnpm-workspace.yaml tsconfig.json vitest.config.ts",
+    "format:check": "prettier --check src drizzle/meta drizzle.config.ts eslint.config.mjs package.json pnpm-workspace.yaml tsconfig.json vitest.config.ts",
     "lint": "eslint src drizzle.config.ts eslint.config.mjs vitest.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:check": "drizzle-kit check"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
@@ -29,6 +30,7 @@
     "server-only": "0.0.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@eslint/js": "10.0.1",
     "@next/env": "16.3.8",
     "@next/eslint-plugin-next": "16.3.8",
