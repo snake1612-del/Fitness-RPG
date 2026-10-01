@@ -7,6 +7,7 @@ import type {
 } from "@/application/training/workout-ports";
 import { ActiveSessionConflict } from "@/domain/training/workout";
 import { withUserTransaction } from "../db/user-transaction";
+import { readWorkout, sessionView } from "./workout-read";
 import {
   exercise,
   sessionExercise,
@@ -38,23 +39,7 @@ export function createWorkoutRepository(
         return await withUserTransaction(database, userId, async (tx) => {
           const scoped: WorkoutTransaction = {
             async findActive() {
-              const [header] = await tx
-                .select()
-                .from(workoutSession)
-                .where(
-                  and(
-                    eq(workoutSession.userId, userId),
-                    eq(workoutSession.status, "ACTIVE"),
-                  ),
-                );
-              if (!header) return null;
-              // Resume reads only historical snapshot tables, never live planning.
-              const exercises = await tx
-                .select()
-                .from(sessionExercise)
-                .where(eq(sessionExercise.sessionId, header.id))
-                .orderBy(asc(sessionExercise.position));
-              return { ...header, exercises };
+              return readWorkout(tx, userId, { status: "ACTIVE" });
             },
             async findStartPlan(templateId) {
               const [source] = await tx
@@ -124,7 +109,7 @@ export function createWorkoutRepository(
                   plannedWorkingSetQuota: quota,
                 })
                 .returning();
-              return header;
+              return sessionView(header);
             },
             async insertExercise(sessionId, snapshot) {
               await tx

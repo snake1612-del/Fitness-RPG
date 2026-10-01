@@ -342,6 +342,7 @@ describe("Start and Resume relational persistence", () => {
       "template_exercise",
       "workout_program",
       "workout_session",
+      "workout_set",
       "workout_template",
     ]);
   });

@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  bigint,
   check,
+  date,
   index,
   integer,
   numeric,
@@ -149,6 +151,12 @@ export const workoutSession = pgTable(
       .defaultNow()
       .notNull(),
     plannedWorkingSetQuota: integer("planned_working_set_quota").notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    finishTimezone: text("finish_timezone"),
+    finishUtcOffsetSeconds: integer("finish_utc_offset_seconds"),
+    trainingDay: date("training_day", { mode: "string" }),
+    finishOrder: bigint("finish_order", { mode: "bigint" }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     ...timestamps(),
   },
   (table) => [
@@ -158,10 +166,75 @@ export const workoutSession = pgTable(
     index("session_user_idx").on(table.userId),
     index("session_source_program_idx").on(table.sourceProgramId),
     index("session_source_template_idx").on(table.sourceTemplateId),
+    index("session_finished_history_idx")
+      .on(table.userId, table.finishOrder)
+      .where(sql`${table.status} = 'FINISHED'`),
+    uniqueIndex("session_finish_order_unique").on(table.finishOrder),
+    check("session_finish_order_valid", sql`${table.finishOrder} > 0`),
+    check(
+      "session_finish_timezone_valid",
+      sql`length(btrim(${table.finishTimezone})) > 0`,
+    ),
+    check(
+      "session_finish_offset_valid",
+      sql`${table.finishUtcOffsetSeconds} BETWEEN -86400 AND 86400`,
+    ),
+    check(
+      "session_lifecycle_valid",
+      sql`
+      (${table.status} = 'ACTIVE' AND ${table.finishedAt} IS NULL AND ${table.cancelledAt} IS NULL
+       AND ${table.finishTimezone} IS NULL AND ${table.finishUtcOffsetSeconds} IS NULL AND ${table.trainingDay} IS NULL AND ${table.finishOrder} IS NULL)
+      OR (${table.status} = 'FINISHED' AND ${table.finishedAt} IS NOT NULL AND ${table.cancelledAt} IS NULL
+       AND ${table.finishTimezone} IS NOT NULL AND ${table.finishUtcOffsetSeconds} IS NOT NULL AND ${table.trainingDay} IS NOT NULL AND ${table.finishOrder} IS NOT NULL)
+      OR (${table.status} = 'CANCELLED' AND ${table.finishedAt} IS NULL AND ${table.cancelledAt} IS NOT NULL
+       AND ${table.finishTimezone} IS NULL AND ${table.finishUtcOffsetSeconds} IS NULL AND ${table.trainingDay} IS NULL AND ${table.finishOrder} IS NULL)
+    `,
+    ),
     check("session_quota_valid", sql`${table.plannedWorkingSetQuota} >= 0`),
     check(
       "session_source_names_valid",
       sql`length(btrim(${table.sourceProgramName})) > 0 AND length(btrim(${table.sourceTemplateName})) > 0`,
+    ),
+  ],
+).enableRLS();
+
+export const workoutSetType = pgEnum("workout_set_type", [
+  "WORKING",
+  "WARM_UP",
+]);
+export const workoutSet = pgTable(
+  "workout_set",
+  {
+    // Client-generated UUID is the retry identity, never a planned slot identity.
+    id: uuid("id").primaryKey(),
+    sessionExerciseId: uuid("session_exercise_id")
+      .notNull()
+      .references(() => sessionExercise.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+    type: workoutSetType("type").default("WORKING").notNull(),
+    loadKg: numeric("load_kg"),
+    reps: integer("reps"),
+    rir: integer("rir"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    // Retain UUID after deletion so a late create retry cannot resurrect a Set.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex("set_exercise_position_unique").on(
+      table.sessionExerciseId,
+      table.position,
+    ),
+    check("set_position_valid", sql`${table.position} >= 0`),
+    check("set_reps_valid", sql`${table.reps} >= 1`),
+    check("set_rir_valid", sql`${table.rir} BETWEEN 0 AND 10`),
+    check(
+      "set_load_valid",
+      sql`${table.loadKg} >= 0 AND ${table.loadKg} < 'Infinity'::numeric`,
+    ),
+    check(
+      "set_completed_reps_valid",
+      sql`${table.completedAt} IS NULL OR ${table.reps} IS NOT NULL`,
     ),
   ],
 ).enableRLS();

@@ -1,4 +1,5 @@
 import { id, object, PlanningError, type LoadType } from "./planning";
+import type { WorkoutSet } from "./sets";
 
 export type SessionStatus = "ACTIVE" | "FINISHED" | "CANCELLED";
 export type SessionOrigin = "PLANNED" | "SESSION_ONLY";
@@ -30,8 +31,17 @@ export type WorkoutSession = {
   status: SessionStatus;
   startedAt: Date;
   plannedWorkingSetQuota: number;
+  finishedAt: Date | null;
+  finishTimezone: string | null;
+  finishUtcOffsetSeconds: number | null;
+  trainingDay: string | null;
+  finishOrder: string | null;
+  cancelledAt: Date | null;
 };
-export type ActiveWorkout = WorkoutSession & { exercises: SessionExercise[] };
+export type WorkoutDetail = WorkoutSession & {
+  exercises: (SessionExercise & { sets: WorkoutSet[] })[];
+};
+export type ActiveWorkout = WorkoutDetail;
 export type StartPlan = {
   sourceProgramId: string;
   sourceTemplateId: string;
