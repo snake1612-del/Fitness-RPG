@@ -5,7 +5,7 @@ import type { AuthIdentityProvider } from "@/application/foundation/ports";
 import { getServerConfig } from "../config/server";
 import { createIdentityProvider } from "./identity";
 
-export async function getSupabaseIdentityProvider(): Promise<AuthIdentityProvider> {
+export async function getSupabaseAuthClient() {
   const config = getServerConfig();
   const cookieStore = await cookies();
   const client = createServerClient(
@@ -25,5 +25,9 @@ export async function getSupabaseIdentityProvider(): Promise<AuthIdentityProvide
     },
   );
 
-  return createIdentityProvider(client.auth);
+  return client;
+}
+
+export async function getSupabaseIdentityProvider(): Promise<AuthIdentityProvider> {
+  return createIdentityProvider((await getSupabaseAuthClient()).auth);
 }

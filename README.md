@@ -201,8 +201,8 @@ snapshot quota at commit. Empty Templates start with `P = 0`.
 These endpoints require cookie Auth and reject ownership fields in payloads.
 Unauthenticated requests return 401, malformed input 400, unavailable/foreign
 Templates 404, controlled conflicts 409 and infrastructure failures a safe 503.
-Responses are not cached. No workout UI is implemented. The execution and
-lifecycle APIs are described below.
+Responses are not cached. PR #4B provides the workout UI described below.
+The execution and lifecycle APIs are described below.
 
 Migrations `0002_workout_snapshot.sql` and `0003_workout_snapshot_integrity.sql`
 add only the two snapshot tables and their integrity rules. They enable RLS and
@@ -271,5 +271,83 @@ and frozen specifications are unchanged. PGlite tests cover these migrations and
 production repositories, including route-handler composition, rollback and
 snapshot-independent History. Live Supabase/PostgreSQL and independent connection
 concurrency remain separate Milestone A acceptance checks.
+
+## First usable workout UI / pilot (PR #4B)
+
+The mobile UI uses the existing Planning and Workout APIs. No schema, migration,
+Training rule, rotation, Progress or Gamification change is included.
+
+- `/login`: email/password login for an existing Supabase pilot account.
+  `POST /api/auth/login` and `POST /api/auth/logout` use the server SSR client
+  and cookie store; credentials remain outside URLs. Auth actions require the
+  same Origin and return no-store responses. API identity checks verify claims
+  and refresh cookies on requests. Pages contain only a public shell until
+  the protected API read succeeds; no private Server Component data is cached.
+- `/setup`: create custom exercises, create a Program with its first Template,
+  activate a Program, add Templates and add Exercises with planned targets.
+  The backend activates the first Program. Later Programs require activation.
+- `/`: select a Template from the Active Program and Start, or Resume the
+  existing saved ACTIVE Session.
+- `/workout`: snapshot targets are separated from actual Sets. Add a draft,
+  enter exact kg strings/reps/optional RIR, save values, then Complete explicitly.
+  Active corrections, Uncomplete, warm-up type and confirmed deletion are supported.
+  Bodyweight has no load field; assisted bodyweight labels the value as assistance.
+- Finish and Cancel require confirmation. Finish accepts partial workouts and
+  keeps drafts incomplete. Unsaved edits are explicitly disclosed in the
+  confirmation. A finished result opens `/history/:id`; Cancel is not History.
+- `/history` lists only Finished Sessions. Detail renders saved snapshots and
+  actual Sets without performance analytics or XP.
+
+Refresh/reload reads canonical server state. A synchronous submission lock avoids
+duplicate clicks while saving. Draft creation persists a UUID in sessionStorage
+scoped to user/Session/Exercise before transmission and retains it until the
+saved state has been read. Retrying after a lost response or reload reconciles
+that same Set. Deleting it clears any pending client retry identity.
+Finish reconciles a lost response against saved History; other mutation errors
+offer explicit refresh/retry without background resubmission. SessionStorage is
+only a retry identity cache; this is not offline synchronization.
+
+### Automated browser acceptance
+
+Install the Chromium test browser once, then run against the production build:
+
+```sh
+pnpm exec playwright install chromium
+pnpm build
+pnpm test:e2e
+```
+
+The E2E suite starts an isolated Next production server on port 3104 and renders
+the actual UI at a 375px viewport. Playwright intercepts the API transport to
+invoke real Route Handler exports, applications and Drizzle repositories against
+PGlite with all migrations. Only external Auth identity is a fixture.
+This does **not** exercise live Supabase Auth, cookie issuance over HTTPS,
+the deployed runtime or the transaction-mode pooler.
+
+Coverage: login errors/logout/auth expiry, first-use with all three load types,
+Start, exact decimal logging, draft/completed distinction, correction,
+Uncomplete, deletion, reload/Resume, partial Finish with a remaining draft,
+History/reload, lost create/Finish/Cancel responses, Cancel and service recovery.
+Screenshots are written to ignored `test-results/`. `PLAYWRIGHT_CHANNEL` may
+select an installed browser (for example `msedge`) instead of downloaded Chromium.
+
+### Live pilot gate
+
+**Live acceptance: NOT PERFORMED.** No non-production Supabase/PostgreSQL
+credentials or deployed pilot environment were available during this change.
+Milestone A retains an external acceptance gate.
+
+Before accepting Milestone A, configure the existing server environment
+(`SUPABASE_URL`, publishable key, runtime transaction-mode `DATABASE_URL`,
+and TLS CA where needed), apply migrations with trusted tooling, and provision a
+confirmed email/password pilot account. Registration/password recovery UI is
+outside this minimal pilot flow.
+
+On the non-production HTTPS deployment, run:
+login → create exercise/Program/Template/targets → Start → save and Complete Set
+→ Finish → reload → open History. Also reload an ACTIVE workout and Resume,
+then verify Cancel is excluded from completed History. Confirm the runtime
+actually uses the Supabase transaction-mode PostgreSQL pooler. Record live
+evidence separately; automated fixtures cannot mark this gate as passed.
 
 ---
