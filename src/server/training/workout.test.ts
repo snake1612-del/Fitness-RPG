@@ -426,7 +426,7 @@ describe("Start and Resume relational persistence", () => {
       db.postgres.query("UPDATE session_exercise SET position=0 WHERE id=$1", [
         second.id,
       ]),
-    ).rejects.toMatchObject({ code: "23505" });
+    ).rejects.toMatchObject({ code: "23514" }); // Snapshot order is now immutable.
   });
   it("new helpers are not executable by browser roles even with inherited defaults", async () => {
     for (const role of ["anon", "authenticated"])

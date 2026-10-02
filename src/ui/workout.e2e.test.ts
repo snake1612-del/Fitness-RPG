@@ -64,6 +64,13 @@ import * as activate from "@/app/api/programs/[id]/activate/route";
 import * as templates from "@/app/api/programs/[id]/templates/route";
 import * as entries from "@/app/api/templates/[id]/exercises/route";
 import * as activeSession from "@/app/api/sessions/active/route";
+import * as nextSession from "@/app/api/sessions/next/route";
+import * as sessionExercises from "@/app/api/sessions/[id]/exercises/route";
+import * as skip from "@/app/api/session-exercises/[id]/skip/route";
+import * as renameTemplate from "@/app/api/templates/[id]/route";
+import * as editEntry from "@/app/api/template-exercises/[id]/route";
+import * as reorderTemplates from "@/app/api/programs/[id]/templates/reorder/route";
+import * as reorderEntries from "@/app/api/templates/[id]/exercises/reorder/route";
 import * as start from "@/app/api/sessions/start/route";
 import * as sets from "@/app/api/session-exercises/[id]/sets/route";
 import * as set from "@/app/api/sets/[id]/route";
@@ -100,6 +107,13 @@ const routes: [RegExp, Partial<Record<Method, Handler>>][] = [
   [/^\/api\/programs\/([^/]+)\/templates$/, templates],
   [/^\/api\/templates\/([^/]+)\/exercises$/, entries],
   [/^\/api\/sessions\/active$/, activeSession],
+  [/^\/api\/sessions\/next$/, nextSession],
+  [/^\/api\/sessions\/([^/]+)\/exercises$/, sessionExercises],
+  [/^\/api\/session-exercises\/([^/]+)\/skip$/, skip],
+  [/^\/api\/templates\/([^/]+)$/, renameTemplate],
+  [/^\/api\/template-exercises\/([^/]+)$/, editEntry],
+  [/^\/api\/programs\/([^/]+)\/templates\/reorder$/, reorderTemplates],
+  [/^\/api\/templates\/([^/]+)\/exercises\/reorder$/, reorderEntries],
   [/^\/api\/sessions\/start$/, start],
   [/^\/api\/session-exercises\/([^/]+)\/sets$/, sets],
   [/^\/api\/sets\/([^/]+)$/, set],
@@ -469,4 +483,148 @@ it("service failure has a recovery action and expired auth hides private content
   await page.getByRole("button", { name: "Refresh saved state" }).click();
   await browserExpect(page).toHaveURL(origin + "/login");
   await browserExpect(page.getByRole("navigation")).toHaveCount(0);
+});
+
+it("repeatable mobile flow: planning edits/order, Next, session-only logging, Skip, partial Finish and Cancel rotation", async () => {
+  await seed();
+  const plan = (await db.app.activeProgram(userId))!;
+  const b = await db.app.createTemplate(userId, plan.id, { name: "Workout B" });
+  const c = await db.app.createTemplate(userId, plan.id, { name: "Workout C" });
+  const extra = await db.app.createExercise(userId, {
+    name: "Extra pull-up",
+    loadType: "BODYWEIGHT",
+  });
+  await login();
+  await browserExpect(
+    page.getByRole("heading", { name: "Next Workout: Workout A" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Program", exact: true }).click();
+  const aCard = page.locator(".plan-preview").filter({
+    has: page.getByRole("heading", { name: "Workout A", exact: true }),
+  });
+  await aCard.getByText("Edit targets for Press", { exact: true }).click();
+  await aCard.getByLabel("Working sets", { exact: true }).fill("4");
+  await aCard
+    .getByRole("button", { name: "Save targets", exact: true })
+    .click();
+  await browserExpect(aCard).toContainText("4 working sets");
+  await page
+    .getByRole("button", { name: "Move Workout C up", exact: true })
+    .click();
+  await browserExpect(page.locator(".plan-preview h3")).toHaveText([
+    "Workout A",
+    "Workout C",
+    "Workout B",
+  ]);
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await startWorkout();
+  const planned = page
+    .locator("section.exercise")
+    .filter({ has: page.getByRole("heading", { name: "Press", exact: true }) });
+  await planned
+    .getByRole("button", { name: "Skip exercise", exact: true })
+    .click();
+  await browserExpect(
+    planned.getByText("Skipped", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Session-only exercise", { exact: true })
+    .selectOption(extra.id);
+  await page.getByRole("button", { name: "Add exercise", exact: true }).click();
+  const added = page.locator("section.exercise").filter({
+    has: page.getByRole("heading", { name: "Extra pull-up", exact: true }),
+  });
+  await browserExpect(
+    added.getByText("Session-only · no planned targets", { exact: true }),
+  ).toBeVisible();
+  await added
+    .getByRole("button", { name: "Add draft set", exact: true })
+    .click();
+  await added.getByLabel("Reps", { exact: true }).fill("10");
+  await added.getByRole("button", { name: "Save values", exact: true }).click();
+  await browserExpect(
+    added.getByRole("button", { name: "Complete", exact: true }),
+  ).toBeEnabled();
+  await added.getByRole("button", { name: "Complete", exact: true }).click();
+  await browserExpect(
+    added.getByText("Completed", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(
+    added.getByRole("button", { name: "Skip exercise", exact: true }),
+  ).toBeDisabled();
+  await page.reload();
+  await browserExpect(
+    planned.getByText("Skipped", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(
+    added.getByText("Completed", { exact: true }),
+  ).toBeVisible();
+  const active = (await db.workouts.active(userId))!;
+  expect(active.plannedWorkingSetQuota).toBe(4);
+  expect(active.exercises[0].sets).toHaveLength(0);
+  expect(active.exercises[1]).toMatchObject({
+    origin: "SESSION_ONLY",
+    plannedWorkingSets: 0,
+    sets: [{ reps: 10 }],
+  });
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.getByRole("link", { name: "Resume Workout", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Finish Workout", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm finish", exact: true })
+    .click();
+  await browserExpect(
+    page.getByText("Workout saved.", { exact: false }),
+  ).toBeVisible();
+  await page.reload();
+  await browserExpect(page.getByText("Skipped", { exact: true })).toBeVisible();
+  await browserExpect(
+    page.getByText("Session-only · no planned targets", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await browserExpect(
+    page.getByRole("heading", { name: "Next Workout: Workout C" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Start Workout", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Cancel Workout", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm cancel", exact: true })
+    .click();
+  await browserExpect(
+    page.getByRole("heading", { name: "No active workout" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await browserExpect(
+    page.getByRole("heading", { name: "Next Workout: Workout C" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Start Workout", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Finish Workout", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm finish", exact: true })
+    .click();
+  await browserExpect(
+    page.getByText("Workout saved.", { exact: false }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await browserExpect(
+    page.getByRole("heading", { name: "Next Workout: Workout B" }),
+  ).toBeVisible();
+  expect(
+    (await db.app.activeProgram(userId))?.templates.map(
+      (template) => template.id,
+    ),
+  ).toEqual([plan.templates[0].id, c.id, b.id]);
+  expect(
+    (await db.app.activeProgram(userId))?.templates[0].exercises,
+  ).toHaveLength(1);
 });

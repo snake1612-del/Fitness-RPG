@@ -9,8 +9,8 @@ export type PlannedExerciseSnapshot = {
   exerciseName: string;
   loadType: LoadType;
   plannedWorkingSets: number;
-  targetRepsMin: number;
-  targetRepsMax: number;
+  targetRepsMin: number | null;
+  targetRepsMax: number | null;
   targetLoadKg: string | null;
   targetRir: number | null;
   targetRestSeconds: number | null;
@@ -20,6 +20,7 @@ export type SessionExercise = PlannedExerciseSnapshot & {
   id: string;
   sessionId: string;
   origin: SessionOrigin;
+  skipped: boolean;
 };
 export type WorkoutSession = {
   id: string;

@@ -7,6 +7,7 @@ import type {
 
 export interface WorkoutTransaction {
   findActive(): Promise<ActiveWorkout | null>;
+  findNext(): Promise<{ id: string; name: string } | null>;
   findStartPlan(templateId: string): Promise<StartPlan | null>;
   insertSession(plan: StartPlan, quota: number): Promise<WorkoutSession>;
   insertExercise(

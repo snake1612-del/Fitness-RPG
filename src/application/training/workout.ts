@@ -9,6 +9,14 @@ import type { WorkoutRepository } from "./workout-ports";
 
 export function createWorkoutApplication(repository: WorkoutRepository) {
   return {
+    next(userId: string) {
+      return repository.forUser(userId, async (tx) => {
+        const active = await tx.findActive();
+        return active
+          ? { kind: "RESUME" as const, session: active }
+          : { kind: "NEXT" as const, template: await tx.findNext() };
+      });
+    },
     active(userId: string) {
       return repository.forUser(userId, (tx) => tx.findActive());
     },

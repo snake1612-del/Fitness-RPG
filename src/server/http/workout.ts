@@ -7,6 +7,7 @@ export async function workoutResponse(
   getAuth: () => Promise<AuthIdentityProvider>,
   getApplication: () => WorkoutApplication,
   request?: Request,
+  next = false,
 ): Promise<Response> {
   const headers = { "Cache-Control": "no-store" };
   try {
@@ -14,6 +15,7 @@ export async function workoutResponse(
     if (!identity)
       return Response.json({ error: "unauthorized" }, { status: 401, headers });
     const app = getApplication();
+    if (next) return Response.json(await app.next(identity.id), { headers });
     if (!request)
       return Response.json(await app.active(identity.id), { headers });
     const result = await app.start(

@@ -5,6 +5,7 @@ import type {
   Program,
   ProgramPlan,
   LoadType,
+  Targets,
 } from "@/domain/training/planning";
 import { loadLabel } from "./set-editor";
 
@@ -29,7 +30,7 @@ export function Planning({ exercises, programs, plan, busy, mutate }: Props) {
     <>
       <h1>Prepare your workout</h1>
       <p className="lede">
-        Create an exercise, build your plan, then start training.
+        Manage your Program, templates and targets between workouts.
       </p>
       <section className="card">
         <h2>1. Exercises</h2>
@@ -293,15 +294,72 @@ export function Planning({ exercises, programs, plan, busy, mutate }: Props) {
             </fieldset>
           </form>
           {!exercise && <p>Create your first exercise above.</p>}
-          {plan.templates.map((template) => (
+          {plan.templates.map((template, templateIndex) => (
             <div key={template.id} className="plan-preview">
               <h3>{template.name}</h3>
+              <form
+                key={`${template.id}:${template.name}`}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void mutate(`/api/templates/${template.id}`, "PATCH", {
+                    name: new FormData(event.currentTarget).get("name"),
+                  });
+                }}
+              >
+                <fieldset disabled={busy}>
+                  <label>
+                    Template name
+                    <input name="name" defaultValue={template.name} required />
+                  </label>
+                  <button className="secondary">Save template name</button>
+                </fieldset>
+              </form>
+              <OrderButtons
+                label={template.name}
+                index={templateIndex}
+                items={plan.templates}
+                busy={busy}
+                save={(ids) =>
+                  mutate(`/api/programs/${plan.id}/templates/reorder`, "POST", {
+                    ids,
+                  })
+                }
+              />
               <ol>
-                {template.exercises.map((entry) => (
+                {template.exercises.map((entry, entryIndex) => (
                   <li key={entry.id}>
                     <strong>{entry.exercise.name}</strong> ·{" "}
                     {entry.targetWorkingSets} working sets ·{" "}
                     {entry.targetRepsMin}–{entry.targetRepsMax} reps
+                    <OrderButtons
+                      label={entry.exercise.name}
+                      index={entryIndex}
+                      items={template.exercises}
+                      busy={busy}
+                      save={(ids) =>
+                        mutate(
+                          `/api/templates/${template.id}/exercises/reorder`,
+                          "POST",
+                          { ids },
+                        )
+                      }
+                    />
+                    <details>
+                      <summary>Edit targets for {entry.exercise.name}</summary>
+                      <TargetEditor
+                        key={JSON.stringify(entry)}
+                        targets={entry}
+                        loadType={entry.exercise.loadType}
+                        busy={busy}
+                        save={(targets) =>
+                          mutate(
+                            `/api/template-exercises/${entry.id}`,
+                            "PATCH",
+                            targets,
+                          )
+                        }
+                      />
+                    </details>
                   </li>
                 ))}
               </ol>
@@ -311,5 +369,156 @@ export function Planning({ exercises, programs, plan, busy, mutate }: Props) {
         </section>
       )}
     </>
+  );
+}
+
+function OrderButtons({
+  label,
+  index,
+  items,
+  busy,
+  save,
+}: {
+  label: string;
+  index: number;
+  items: { id: string }[];
+  busy: boolean;
+  save: (ids: string[]) => Promise<boolean>;
+}) {
+  const move = (delta: number) => {
+    const ids = items.map((item) => item.id);
+    [ids[index], ids[index + delta]] = [ids[index + delta], ids[index]];
+    void save(ids);
+  };
+  return (
+    <div className="actions">
+      <button
+        type="button"
+        className="quiet"
+        disabled={busy || index === 0}
+        aria-label={`Move ${label} up`}
+        onClick={() => move(-1)}
+      >
+        Move up
+      </button>
+      <button
+        type="button"
+        className="quiet"
+        disabled={busy || index === items.length - 1}
+        aria-label={`Move ${label} down`}
+        onClick={() => move(1)}
+      >
+        Move down
+      </button>
+    </div>
+  );
+}
+
+function TargetEditor({
+  targets,
+  loadType,
+  busy,
+  save,
+}: {
+  targets: Targets;
+  loadType: LoadType;
+  busy: boolean;
+  save: (targets: Targets) => Promise<boolean>;
+}) {
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        const optional = (key: string) =>
+          fields.get(key) === "" ? null : Number(fields.get(key));
+        void save({
+          targetWorkingSets: Number(fields.get("sets")),
+          targetRepsMin: Number(fields.get("min")),
+          targetRepsMax: Number(fields.get("max")),
+          targetLoadKg:
+            loadType === "BODYWEIGHT" || !fields.get("load")
+              ? null
+              : String(fields.get("load")),
+          targetRir: optional("rir"),
+          targetRestSeconds: optional("rest"),
+          notes: String(fields.get("notes") || "") || null,
+        });
+      }}
+    >
+      <fieldset disabled={busy}>
+        <div className="input-grid">
+          <label>
+            Working sets
+            <input
+              name="sets"
+              type="number"
+              required
+              min={1}
+              max={2147483647}
+              defaultValue={targets.targetWorkingSets}
+            />
+          </label>
+          <label>
+            Min reps
+            <input
+              name="min"
+              type="number"
+              required
+              min={1}
+              max={2147483647}
+              defaultValue={targets.targetRepsMin}
+            />
+          </label>
+          <label>
+            Max reps
+            <input
+              name="max"
+              type="number"
+              required
+              min={1}
+              max={2147483647}
+              defaultValue={targets.targetRepsMax}
+            />
+          </label>
+          {loadType !== "BODYWEIGHT" && (
+            <label>
+              {loadLabel(loadType)} (optional)
+              <input
+                name="load"
+                inputMode="decimal"
+                pattern="[0-9]+([.][0-9]+)?"
+                defaultValue={targets.targetLoadKg ?? ""}
+              />
+            </label>
+          )}
+          <label>
+            Target RIR (optional)
+            <input
+              name="rir"
+              type="number"
+              min={0}
+              max={10}
+              defaultValue={targets.targetRir ?? ""}
+            />
+          </label>
+          <label>
+            Rest seconds (optional)
+            <input
+              name="rest"
+              type="number"
+              min={0}
+              max={2147483647}
+              defaultValue={targets.targetRestSeconds ?? ""}
+            />
+          </label>
+        </div>
+        <label>
+          Notes (optional)
+          <input name="notes" defaultValue={targets.notes ?? ""} />
+        </label>
+        <button>Save targets</button>
+      </fieldset>
+    </form>
   );
 }
