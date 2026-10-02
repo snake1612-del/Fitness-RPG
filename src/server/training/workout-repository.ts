@@ -1,5 +1,6 @@
 import "server-only";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
+import { nextTemplate } from "@/domain/training/rotation";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type {
   WorkoutRepository,
@@ -38,6 +39,36 @@ export function createWorkoutRepository(
       try {
         return await withUserTransaction(database, userId, async (tx) => {
           const scoped: WorkoutTransaction = {
+            async findNext() {
+              const [program] = await tx
+                .select()
+                .from(workoutProgram)
+                .where(
+                  and(
+                    eq(workoutProgram.userId, userId),
+                    eq(workoutProgram.isActive, true),
+                  ),
+                );
+              if (!program) return null;
+              const templates = await tx
+                .select({ id: workoutTemplate.id, name: workoutTemplate.name })
+                .from(workoutTemplate)
+                .where(eq(workoutTemplate.programId, program.id))
+                .orderBy(asc(workoutTemplate.position));
+              const [latest] = await tx
+                .select({ source: workoutSession.sourceTemplateId })
+                .from(workoutSession)
+                .where(
+                  and(
+                    eq(workoutSession.userId, userId),
+                    eq(workoutSession.sourceProgramId, program.id),
+                    eq(workoutSession.status, "FINISHED"),
+                  ),
+                )
+                .orderBy(desc(workoutSession.finishOrder))
+                .limit(1);
+              return nextTemplate(templates, latest?.source ?? null);
+            },
             async findActive() {
               return readWorkout(tx, userId, { status: "ACTIVE" });
             },

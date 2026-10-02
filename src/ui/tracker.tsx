@@ -22,6 +22,10 @@ type Data = {
   active: Detail | null;
   history: JsonDates<WorkoutSession>[];
   detail: Detail | null;
+  next:
+    | { kind: "NEXT"; template: { id: string; name: string } | null }
+    | { kind: "RESUME"; session: Detail }
+    | null;
 };
 export function Tracker({
   screen,
@@ -38,7 +42,6 @@ export function Tracker({
   const mounted = useRef(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [template, setTemplate] = useState("");
   const [confirmation, setConfirmation] = useState<"finish" | "cancel" | null>(
     null,
   );
@@ -48,14 +51,14 @@ export function Tracker({
       router.replace("/");
       return;
     }
-    const [plan, active, programs, exercises, history, detail] =
+    const [plan, active, programs, exercises, history, detail, next] =
       await Promise.all([
         api<ProgramPlan | null>("/api/programs/active"),
         api<Detail | null>("/api/sessions/active"),
         screen === "setup"
           ? api<Program[]>("/api/programs")
           : Promise.resolve([]),
-        screen === "setup"
+        screen === "setup" || screen === "workout"
           ? api<Exercise[]>("/api/exercises")
           : Promise.resolve([]),
         screen === "history"
@@ -63,6 +66,9 @@ export function Tracker({
           : Promise.resolve([]),
         sessionId
           ? api<Detail>(`/api/sessions/${sessionId}`)
+          : Promise.resolve(null),
+        screen === "home"
+          ? api<Data["next"]>("/api/sessions/next")
           : Promise.resolve(null),
       ]);
     if (mounted.current)
@@ -74,6 +80,7 @@ export function Tracker({
         exercises,
         history,
         detail,
+        next,
       });
   }, [router, screen, sessionId]);
   const handleError = useCallback(
@@ -183,11 +190,10 @@ export function Tracker({
       }
     });
   }
-  const active = data?.active;
+  const active =
+    data?.next?.kind === "RESUME" ? data.next.session : data?.active;
   const plan = data?.plan;
-  const selectedTemplate =
-    plan?.templates.find((value) => value.id === template)?.id ??
-    plan?.templates[0]?.id;
+  const nextTemplate = data?.next?.kind === "NEXT" ? data.next.template : null;
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -334,27 +340,15 @@ export function Tracker({
                       <p>
                         Active Program: <strong>{plan.name}</strong>
                       </p>
-                      <label>
-                        Workout template
-                        <select
-                          aria-label="Workout template"
-                          disabled={busy}
-                          value={selectedTemplate ?? ""}
-                          onChange={(event) => setTemplate(event.target.value)}
-                        >
-                          {plan.templates.map((value) => (
-                            <option key={value.id} value={value.id}>
-                              {value.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <h3>
+                        Next Workout: {nextTemplate?.name ?? "No templates yet"}
+                      </h3>
                       <button
-                        disabled={busy || !selectedTemplate}
+                        disabled={busy || !nextTemplate}
                         onClick={() =>
                           void run(async () => {
                             await api("/api/sessions/start", "POST", {
-                              templateId: selectedTemplate,
+                              templateId: nextTemplate?.id,
                             });
                             router.push("/workout");
                           })
@@ -403,26 +397,58 @@ export function Tracker({
                   {active.exercises.map((exercise) => (
                     <section className="card exercise" key={exercise.id}>
                       <h2>{exercise.exerciseName}</h2>
-                      <div className="planned">
-                        <strong>Planned targets</strong>
-                        <p>
-                          {exercise.plannedWorkingSets} working sets ·{" "}
-                          {exercise.targetRepsMin}–{exercise.targetRepsMax} reps
+                      {exercise.origin === "SESSION_ONLY" && (
+                        <p className="badge">
+                          Session-only · no planned targets
                         </p>
-                        {exercise.targetLoadKg !== null && (
+                      )}
+                      {exercise.skipped && <p className="badge">Skipped</p>}
+                      {exercise.origin === "PLANNED" && (
+                        <div className="planned">
+                          <strong>Planned targets</strong>
                           <p>
-                            {loadLabel(exercise.loadType)}:{" "}
-                            {exercise.targetLoadKg}
+                            {exercise.plannedWorkingSets} working sets ·{" "}
+                            {exercise.targetRepsMin}–{exercise.targetRepsMax}{" "}
+                            reps
+                          </p>
+                          {exercise.targetLoadKg !== null && (
+                            <p>
+                              {loadLabel(exercise.loadType)}:{" "}
+                              {exercise.targetLoadKg}
+                            </p>
+                          )}
+                          {exercise.targetRir !== null && (
+                            <p>Target RIR: {exercise.targetRir}</p>
+                          )}
+                          {exercise.targetRestSeconds !== null && (
+                            <p>Rest: {exercise.targetRestSeconds}s</p>
+                          )}
+                          {exercise.notes && <p>{exercise.notes}</p>}
+                        </div>
+                      )}
+                      <button
+                        className="secondary"
+                        disabled={
+                          busy ||
+                          (!exercise.skipped &&
+                            exercise.sets.some((set) => set.completedAt))
+                        }
+                        onClick={() =>
+                          void mutate(
+                            `/api/session-exercises/${exercise.id}/skip`,
+                            "PATCH",
+                            { skipped: !exercise.skipped },
+                          )
+                        }
+                      >
+                        {exercise.skipped ? "Undo skip" : "Skip exercise"}
+                      </button>
+                      {!exercise.skipped &&
+                        exercise.sets.some((set) => set.completedAt) && (
+                          <p className="hint">
+                            An exercise with completed sets cannot be skipped.
                           </p>
                         )}
-                        {exercise.targetRir !== null && (
-                          <p>Target RIR: {exercise.targetRir}</p>
-                        )}
-                        {exercise.targetRestSeconds !== null && (
-                          <p>Rest: {exercise.targetRestSeconds}s</p>
-                        )}
-                        {exercise.notes && <p>{exercise.notes}</p>}
-                      </div>
                       <h3>Actual sets</h3>
                       {exercise.sets.map((set) => (
                         <SetEditor
@@ -430,6 +456,7 @@ export function Tracker({
                           set={set}
                           loadType={exercise.loadType}
                           busy={busy}
+                          skipped={exercise.skipped}
                           mutate={mutate}
                         />
                       ))}
@@ -438,13 +465,55 @@ export function Tracker({
                       )}
                       <button
                         className="secondary full"
-                        disabled={busy}
+                        disabled={busy || exercise.skipped}
                         onClick={() => void addDraft(exercise.id)}
                       >
                         Add draft set
                       </button>
                     </section>
                   ))}
+                  <section className="card">
+                    <h2>Add exercise to this workout</h2>
+                    <p className="hint">
+                      Session-only. Your Program and planned targets stay saved
+                      separately.
+                    </p>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const fields = new FormData(event.currentTarget);
+                        void mutate(
+                          `/api/sessions/${active.id}/exercises`,
+                          "POST",
+                          { exerciseId: fields.get("exerciseId") },
+                        );
+                      }}
+                    >
+                      <fieldset
+                        disabled={
+                          busy ||
+                          !data.exercises.some((exercise) => !exercise.archived)
+                        }
+                      >
+                        <label>
+                          Session-only exercise
+                          <select
+                            name="exerciseId"
+                            aria-label="Session-only exercise"
+                          >
+                            {data.exercises
+                              .filter((exercise) => !exercise.archived)
+                              .map((exercise) => (
+                                <option key={exercise.id} value={exercise.id}>
+                                  {exercise.name}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                        <button>Add exercise</button>
+                      </fieldset>
+                    </form>
+                  </section>
                   {!active.exercises.length && (
                     <p className="card">
                       This snapshot has no planned exercises. You may finish a
@@ -596,10 +665,15 @@ function SavedWorkout({ session }: { session: Detail }) {
       {session.exercises.map((exercise) => (
         <section className="card" key={exercise.id}>
           <h2>{exercise.exerciseName}</h2>
-          <p className="planned">
-            Planned: {exercise.plannedWorkingSets} working sets ·{" "}
-            {exercise.targetRepsMin}–{exercise.targetRepsMax} reps
-          </p>
+          {exercise.skipped && <p className="badge">Skipped</p>}
+          {exercise.origin === "SESSION_ONLY" ? (
+            <p className="badge">Session-only · no planned targets</p>
+          ) : (
+            <p className="planned">
+              Planned: {exercise.plannedWorkingSets} working sets ·{" "}
+              {exercise.targetRepsMin}–{exercise.targetRepsMax} reps
+            </p>
+          )}
           <h3>Actual sets</h3>
           {!exercise.sets.length && <p>No actual sets recorded.</p>}
           {exercise.sets.map((set) => (

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type {
   ExecutionRepository,
@@ -7,7 +7,12 @@ import type {
 } from "@/application/training/execution-ports";
 import { notFound, PlanningError } from "@/domain/training/planning";
 import { withUserTransaction } from "../db/user-transaction";
-import { sessionExercise, workoutSession, workoutSet } from "../db/schema";
+import {
+  exercise,
+  sessionExercise,
+  workoutSession,
+  workoutSet,
+} from "../db/schema";
 import { readWorkout, sessionView } from "./workout-read";
 
 export function createExecutionRepository(
@@ -47,6 +52,7 @@ export function createExecutionRepository(
                   sessionId: workoutSession.id,
                   status: workoutSession.status,
                   loadType: sessionExercise.loadType,
+                  skipped: sessionExercise.skipped,
                 })
                 .from(sessionExercise)
                 .innerJoin(
@@ -68,6 +74,7 @@ export function createExecutionRepository(
                   set: workoutSet,
                   status: workoutSession.status,
                   loadType: sessionExercise.loadType,
+                  skipped: sessionExercise.skipped,
                 })
                 .from(workoutSet)
                 .innerJoin(
@@ -82,6 +89,57 @@ export function createExecutionRepository(
                   and(eq(workoutSet.id, id), eq(workoutSession.userId, userId)),
                 )
             )[0];
+          },
+          async availableExercise(id) {
+            return (
+              await tx
+                .select()
+                .from(exercise)
+                .where(
+                  and(
+                    eq(exercise.id, id),
+                    eq(exercise.archived, false),
+                    or(
+                      isNull(exercise.ownerUserId),
+                      eq(exercise.ownerUserId, userId),
+                    ),
+                  ),
+                )
+            )[0];
+          },
+          async addExercise(sessionId, definition) {
+            const session = await scoped.readSession(sessionId);
+            if (!session) return notFound();
+            if (session.status !== "ACTIVE")
+              throw new PlanningError("conflict");
+            const position = (session.exercises.at(-1)?.position ?? -1) + 1;
+            if (position > 2_147_483_647) throw new PlanningError("conflict");
+            const [created] = await tx
+              .insert(sessionExercise)
+              .values({
+                sessionId,
+                exerciseId: definition.id,
+                position,
+                origin: "SESSION_ONLY",
+                exerciseName: definition.name,
+                loadType: definition.loadType,
+                plannedWorkingSets: 0,
+              })
+              .returning();
+            return created;
+          },
+          async skipExercise(id, skipped) {
+            const [updated] = await tx
+              .update(sessionExercise)
+              .set({ skipped, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(sessionExercise.id, id),
+                  inArray(sessionExercise.sessionId, ownSessions),
+                ),
+              )
+              .returning({ id: sessionExercise.id });
+            if (!updated) return notFound();
           },
           async createSet(exerciseId, id, values) {
             if (!(await scoped.findExercise(exerciseId))) return notFound();

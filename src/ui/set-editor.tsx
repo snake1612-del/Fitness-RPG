@@ -10,9 +10,16 @@ type Props = {
   set: JsonDates<WorkoutSet>;
   loadType: LoadType;
   busy: boolean;
+  skipped?: boolean;
   mutate: (path: string, method?: string, body?: unknown) => Promise<boolean>;
 };
-export function SetEditor({ set, loadType, busy, mutate }: Props) {
+export function SetEditor({
+  set,
+  loadType,
+  busy,
+  skipped = false,
+  mutate,
+}: Props) {
   const [type, setType] = useState<SetType>(set.type);
   const [load, setLoad] = useState(set.loadKg ?? "");
   const [reps, setReps] = useState(set.reps?.toString() ?? "");
@@ -102,7 +109,7 @@ export function SetEditor({ set, loadType, busy, mutate }: Props) {
             </button>
             <button
               type="button"
-              disabled={changed}
+              disabled={changed || skipped}
               onClick={() =>
                 void mutate(
                   `/api/sets/${set.id}/${set.completedAt ? "uncomplete" : "complete"}`,

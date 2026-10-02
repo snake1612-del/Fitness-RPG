@@ -1,4 +1,9 @@
-import { id, notFound, PlanningError } from "@/domain/training/planning";
+import {
+  id,
+  object,
+  notFound,
+  PlanningError,
+} from "@/domain/training/planning";
 import {
   changeSetInput,
   createSetInput,
@@ -27,12 +32,42 @@ export function createExecutionApplication(
   now: () => Date = () => new Date(),
 ) {
   return {
+    addExercise(userId: string, sessionId: string, input: unknown) {
+      const valueId = id(sessionId);
+      const exerciseId = id(object(input, ["exerciseId"]).exerciseId);
+      return repository.forUser(userId, async (tx) => {
+        const session = (await tx.readSession(valueId)) ?? notFound();
+        active(session.status);
+        const exercise = (await tx.availableExercise(exerciseId)) ?? notFound();
+        return tx.addExercise(valueId, exercise);
+      });
+    },
+    skipExercise(userId: string, exerciseId: string, input: unknown) {
+      const valueId = id(exerciseId);
+      const { skipped } = object(input, ["skipped"]);
+      if (typeof skipped !== "boolean")
+        throw new PlanningError("invalid_input");
+      return repository.forUser(userId, async (tx) => {
+        const scope = (await tx.findExercise(valueId)) ?? notFound();
+        active(scope.status);
+        const session = (await tx.readSession(scope.sessionId)) ?? notFound();
+        if (
+          skipped &&
+          session.exercises
+            .find((entry) => entry.id === valueId)
+            ?.sets.some((set) => set.completedAt)
+        )
+          throw new PlanningError("conflict");
+        await tx.skipExercise(valueId, skipped);
+      });
+    },
     createSet(userId: string, exerciseId: string, input: unknown) {
       const parentId = id(exerciseId),
         { setId, value } = createSetInput(input);
       return repository.forUser(userId, async (tx) => {
         const parent = (await tx.findExercise(parentId)) ?? notFound();
         active(parent.status);
+        if (parent.skipped) throw new PlanningError("conflict");
         const values = draftValues(value, parent.loadType);
         const existing = await tx.findSet(setId);
         if (existing) {
@@ -61,6 +96,7 @@ export function createExecutionApplication(
       return repository.forUser(userId, async (tx) => {
         const scope = await setScope(tx, valueId);
         requireCompleted(scope.set, scope.loadType);
+        if (scope.skipped) throw new PlanningError("conflict");
         return scope.set.completedAt
           ? scope.set
           : tx.changeSet(valueId, { completedAt: now() });

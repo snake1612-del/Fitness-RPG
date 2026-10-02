@@ -43,6 +43,13 @@
       "when": 1790866969832,
       "tag": "0005_workout_execution_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790948674718,
+      "tag": "0006_repeatable_workout",
+      "breakpoints": true
     }
   ]
 }
