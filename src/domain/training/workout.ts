@@ -38,6 +38,7 @@ export type WorkoutSession = {
   trainingDay: string | null;
   finishOrder: string | null;
   cancelledAt: Date | null;
+  correctionRevision: number;
 };
 export type WorkoutDetail = WorkoutSession & {
   exercises: (SessionExercise & { sets: WorkoutSet[] })[];

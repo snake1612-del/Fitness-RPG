@@ -11,6 +11,7 @@ import type { WorkoutDetail, WorkoutSession } from "@/domain/training/workout";
 import { api, ApiError, draftIdentity, type JsonDates } from "./api";
 import { Planning } from "./planning";
 import { SetEditor, loadLabel } from "./set-editor";
+import { CorrectionEditor } from "./correction-editor";
 
 export type Screen = "home" | "login" | "setup" | "workout" | "history";
 type Detail = JsonDates<WorkoutDetail>;
@@ -42,6 +43,7 @@ export function Tracker({
   const mounted = useRef(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState(false);
   const [confirmation, setConfirmation] = useState<"finish" | "cancel" | null>(
     null,
   );
@@ -58,7 +60,7 @@ export function Tracker({
         screen === "setup"
           ? api<Program[]>("/api/programs")
           : Promise.resolve([]),
-        screen === "setup" || screen === "workout"
+        screen === "setup" || screen === "workout" || !!sessionId
           ? api<Exercise[]>("/api/exercises")
           : Promise.resolve([]),
         screen === "history"
@@ -591,7 +593,24 @@ export function Tracker({
               ))}
             {screen === "history" &&
               (data.detail ? (
-                <SavedWorkout session={data.detail} />
+                editing ? (
+                  <CorrectionEditor
+                    key={data.detail.id}
+                    session={data.detail}
+                    exercises={data.exercises}
+                    onCancel={() => setEditing(false)}
+                    onSaved={(detail) => {
+                      setData({ ...data, detail });
+                      setEditing(false);
+                      setNotice("Corrections saved.");
+                    }}
+                  />
+                ) : (
+                  <>
+                    <SavedWorkout session={data.detail} />
+                    <button onClick={() => setEditing(true)}>Edit</button>
+                  </>
+                )
               ) : (
                 <>
                   <p className="eyebrow">SAVED TRAINING</p>

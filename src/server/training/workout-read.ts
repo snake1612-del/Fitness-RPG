@@ -33,7 +33,12 @@ export async function readWorkout(
   const exercises = await tx
     .select()
     .from(sessionExercise)
-    .where(eq(sessionExercise.sessionId, header.id))
+    .where(
+      and(
+        eq(sessionExercise.sessionId, header.id),
+        isNull(sessionExercise.deletedAt),
+      ),
+    )
     .orderBy(asc(sessionExercise.position));
   const sets = exercises.length
     ? await tx

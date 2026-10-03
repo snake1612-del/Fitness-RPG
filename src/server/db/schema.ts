@@ -157,6 +157,7 @@ export const workoutSession = pgTable(
     trainingDay: date("training_day", { mode: "string" }),
     finishOrder: bigint("finish_order", { mode: "bigint" }),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    correctionRevision: integer("correction_revision").default(0).notNull(),
     ...timestamps(),
   },
   (table) => [
@@ -191,6 +192,7 @@ export const workoutSession = pgTable(
     `,
     ),
     check("session_quota_valid", sql`${table.plannedWorkingSetQuota} >= 0`),
+    check("session_revision_valid", sql`${table.correctionRevision} >= 0`),
     check(
       "session_source_names_valid",
       sql`length(btrim(${table.sourceProgramName})) > 0 AND length(btrim(${table.sourceTemplateName})) > 0`,
@@ -252,6 +254,7 @@ export const sessionExercise = pgTable(
     position: integer("position").notNull(),
     origin: sessionExerciseOrigin("origin").default("PLANNED").notNull(),
     skipped: boolean("skipped").default(false).notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     exerciseName: text("exercise_name").notNull(),
     loadType: exerciseLoadType("load_type").notNull(),
     plannedWorkingSets: integer("planned_working_sets").notNull(),
