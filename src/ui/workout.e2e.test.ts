@@ -460,54 +460,167 @@ it("Finished corrections save local edits atomically, retain drafts, survive rel
     page.getByText("23.75000000000000001", { exact: false }),
   ).toBeVisible();
 });
-it("Finished editor rejects stale Save without overwriting; session-only delete requires confirmation", async () => {
-  await seed();
-  const plan = (await db.app.activeProgram(userId))!;
-  const { session } = await db.workouts.start(userId, {
-    templateId: plan.templates[0].id,
-  });
-  const e = await db.execution.addExercise(userId, session.id, {
-    exerciseId: plan.templates[0].exercises[0].exerciseId,
-  });
-  const s = await db.execution.createSet(userId, e.id, {
-    id: randomUUID(),
-    loadKg: "20",
-    reps: 8,
-  });
-  await db.execution.completeSet(userId, s.id);
-  await db.execution.finish(userId, session.id, { timeZone: "UTC" });
-  await login();
-  await page.getByRole("link", { name: "History", exact: true }).click();
-  await page.locator(`a[href="/history/${session.id}"]`).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  const sessionOnly = page
-    .locator("section.exercise")
-    .filter({ has: page.getByLabel("Exercise identity", { exact: true }) });
-  page.once("dialog", (d) => void d.dismiss());
-  await sessionOnly
-    .getByRole("button", { name: "Delete Exercise", exact: true })
-    .click();
-  await browserExpect(sessionOnly).toHaveCount(1);
-  await sessionOnly.getByLabel("Reps", { exact: true }).fill("9");
-  await db.corrections.correct(userId, session.id, {
-    expected_revision: 0,
-    setEdits: [
-      { id: s.id, type: "WORKING", loadKg: "21", reps: 10, rir: null },
-    ],
-  });
-  await page
-    .getByRole("button", { name: "Save corrections", exact: true })
-    .click();
-  await browserExpect(page.locator("main").getByRole("alert")).toContainText(
-    "saved state has changed",
-  );
-  expect(
-    (await db.execution.historyDetail(userId, session.id)).exercises[1].sets[0],
-  ).toMatchObject({ reps: 10, loadKg: "21" });
-  await browserExpect(
-    page.getByText("Edit Finished Workout", { exact: true }),
-  ).toBeVisible();
-});
+it.each(["edit", "delete"])(
+  "Finished editor recovers from stale Save after confirmed refresh (external %s); session-only delete requires confirmation",
+  async (externalChange) => {
+    await seed();
+    const plan = (await db.app.activeProgram(userId))!;
+    const { session } = await db.workouts.start(userId, {
+      templateId: plan.templates[0].id,
+    });
+    const e = await db.execution.addExercise(userId, session.id, {
+      exerciseId: plan.templates[0].exercises[0].exerciseId,
+    });
+    const s = await db.execution.createSet(userId, e.id, {
+      id: randomUUID(),
+      loadKg: "20",
+      reps: 8,
+    });
+    await db.execution.completeSet(userId, s.id);
+    const draft = await db.execution.createSet(userId, e.id, {
+      id: randomUUID(),
+    });
+    await db.execution.finish(userId, session.id, { timeZone: "UTC" });
+    await login();
+    await page.getByRole("link", { name: "History", exact: true }).click();
+    await page.locator(`a[href="/history/${session.id}"]`).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const sessionOnly = page
+      .locator("section.exercise")
+      .filter({ has: page.getByLabel("Exercise identity", { exact: true }) });
+    page.once("dialog", (d) => void d.dismiss());
+    await sessionOnly
+      .getByRole("button", { name: "Delete Exercise", exact: true })
+      .click();
+    await browserExpect(sessionOnly).toHaveCount(1);
+    await sessionOnly.getByLabel("Reps", { exact: true }).fill("9");
+    // Local add/delete state must also be discarded by the successful refresh.
+    await sessionOnly
+      .getByRole("article", { name: "Set 2", exact: true })
+      .getByRole("button", { name: "Delete Set", exact: true })
+      .click();
+    await sessionOnly
+      .getByRole("button", { name: "Add Set", exact: true })
+      .click();
+    const localAddition = sessionOnly.getByRole("article", {
+      name: "Set 3",
+      exact: true,
+    });
+    await localAddition
+      .getByLabel("External load (kg)", { exact: true })
+      .fill("20");
+    await localAddition.getByLabel("Reps", { exact: true }).fill("6");
+    await db.corrections.correct(userId, session.id, {
+      expected_revision: 0,
+      ...(externalChange === "edit"
+        ? {
+            setEdits: [
+              { id: s.id, type: "WORKING", loadKg: "21", reps: 10, rir: null },
+            ],
+          }
+        : { setDeletions: [s.id] }),
+    });
+    await page
+      .getByRole("button", { name: "Save corrections", exact: true })
+      .click();
+    await browserExpect(page.locator("main").getByRole("alert")).toContainText(
+      "saved state has changed",
+    );
+    const canonical = await db.execution.historyDetail(userId, session.id);
+    expect(canonical.correctionRevision).toBe(1);
+    if (externalChange === "edit")
+      expect(canonical.exercises[1].sets[0]).toMatchObject({
+        reps: 10,
+        loadKg: "21",
+      });
+    else
+      expect(canonical.exercises[1].sets.map((set) => set.id)).toEqual([
+        draft.id,
+      ]);
+    await browserExpect(
+      sessionOnly
+        .getByRole("article", { name: "Set 1", exact: true })
+        .getByLabel("Reps", { exact: true }),
+    ).toHaveValue("9");
+    await browserExpect(localAddition).toBeVisible();
+    await browserExpect(
+      page.getByText("Edit Finished Workout", { exact: true }),
+    ).toBeVisible();
+    // A declined refresh retains the stale local input and revision.
+    page.once("dialog", (dialog) => void dialog.dismiss());
+    await page
+      .getByRole("button", { name: "Refresh saved state", exact: true })
+      .click();
+    await browserExpect(
+      sessionOnly
+        .getByRole("article", { name: "Set 1", exact: true })
+        .getByLabel("Reps", { exact: true }),
+    ).toHaveValue("9");
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page
+      .getByRole("button", { name: "Refresh saved state", exact: true })
+      .click();
+    await browserExpect(
+      page.getByText("Saved state refreshed.", { exact: true }),
+    ).toBeVisible();
+    await browserExpect(localAddition).toHaveCount(0);
+    await browserExpect(
+      sessionOnly.getByRole("article", { name: "Set 2", exact: true }),
+    ).toBeVisible();
+    await browserExpect(
+      page.getByRole("button", { name: "Save corrections", exact: true }),
+    ).toBeDisabled();
+    await browserExpect(page.locator("main").getByRole("alert")).toHaveCount(0);
+    if (externalChange === "edit") {
+      const refreshed = sessionOnly.getByRole("article", {
+        name: "Set 1",
+        exact: true,
+      });
+      await browserExpect(
+        refreshed.getByLabel("Reps", { exact: true }),
+      ).toHaveValue("10");
+      await refreshed.getByLabel("RIR (optional)", { exact: true }).fill("1");
+    } else {
+      await browserExpect(
+        sessionOnly.getByRole("article", { name: "Set 1", exact: true }),
+      ).toHaveCount(0);
+      await sessionOnly
+        .getByRole("button", { name: "Add Set", exact: true })
+        .click();
+      const added = sessionOnly.getByRole("article", {
+        name: "Set 3",
+        exact: true,
+      });
+      await added.getByLabel("External load (kg)", { exact: true }).fill("25");
+      await added.getByLabel("Reps", { exact: true }).fill("12");
+    }
+    await page
+      .getByRole("button", { name: "Save corrections", exact: true })
+      .click();
+    await browserExpect(
+      page.getByRole("button", { name: "Edit", exact: true }),
+    ).toBeVisible();
+    const saved = await db.execution.historyDetail(userId, session.id);
+    expect(saved.correctionRevision).toBe(2);
+    expect(
+      saved.exercises[1].sets.some(
+        (set) => set.id === draft.id && !set.completedAt,
+      ),
+    ).toBe(true);
+    if (externalChange === "edit")
+      expect(
+        saved.exercises[1].sets.find((set) => set.id === s.id),
+      ).toMatchObject({ reps: 10, rir: 1 });
+    else {
+      expect(saved.exercises[1].sets.some((set) => set.id === s.id)).toBe(
+        false,
+      );
+      expect(
+        saved.exercises[1].sets.find((set) => set.completedAt),
+      ).toMatchObject({ position: 2, reps: 12, loadKg: "25" });
+    }
+  },
+);
 it("mobile user logs in, prepares all load types, starts, corrects/completes sets, finishes partial, reloads History and logs out", async () => {
   await page.goto(origin + "/login");
   await page.getByLabel("Email", { exact: true }).fill("pilot@example.test");

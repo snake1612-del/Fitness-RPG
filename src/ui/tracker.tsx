@@ -595,7 +595,7 @@ export function Tracker({
               (data.detail ? (
                 editing ? (
                   <CorrectionEditor
-                    key={data.detail.id}
+                    key={`${data.detail.id}:${data.detail.correctionRevision}`}
                     session={data.detail}
                     exercises={data.exercises}
                     onCancel={() => setEditing(false)}
