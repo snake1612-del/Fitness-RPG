@@ -11,6 +11,35 @@ export const validEnvironment = {
 };
 
 describe("server configuration", () => {
+  const localEnvironment = {
+    ...validEnvironment,
+    NODE_ENV: "development",
+    LOCAL_DEV: "true",
+    DATABASE_URL: "postgresql://user:local-password@127.0.0.1:55322/postgres",
+    SUPABASE_URL: "http://127.0.0.1:55321",
+  };
+  it("allows explicitly opted-in loopback development services", () => {
+    expect(parseServerConfig(localEnvironment)).toMatchObject({
+      localDev: true,
+      nodeEnv: "development",
+    });
+  });
+  it.each([
+    { NODE_ENV: "production" },
+    { NODE_ENV: "test" },
+    { LOCAL_DEV: "1" },
+    { LOCAL_DEV: undefined },
+    { DATABASE_URL: validEnvironment.DATABASE_URL },
+    { DATABASE_URL: "postgresql://u:p@127.0.0.1.evil.example:55322/postgres" },
+    { SUPABASE_URL: "http://test.supabase.co" },
+    {
+      DATABASE_URL: "postgresql://u:p@127.0.0.1:55322/postgres?sslmode=disable",
+    },
+  ])("rejects unsafe local override %j", (override) => {
+    expect(() =>
+      parseServerConfig({ ...localEnvironment, ...override }),
+    ).toThrow(ServerConfigError);
+  });
   it("accepts a production transaction-pooler configuration", () => {
     expect(parseServerConfig(validEnvironment)).toMatchObject({
       nodeEnv: "production",

@@ -15,6 +15,26 @@ const environment = {
 };
 
 describe("database foundation", () => {
+  it("keeps verified TLS as the default even outside production", () => {
+    expect(
+      createPoolOptions(
+        parseServerConfig({ ...environment, NODE_ENV: "development" }),
+      ).ssl,
+    ).toEqual({ rejectUnauthorized: true });
+  });
+  it("disables TLS only for explicit loopback development", () => {
+    expect(
+      createPoolOptions(
+        parseServerConfig({
+          ...environment,
+          NODE_ENV: "development",
+          LOCAL_DEV: "true",
+          DATABASE_URL: "postgresql://u:p@127.0.0.1:55322/postgres",
+          SUPABASE_URL: "http://127.0.0.1:55321",
+        }),
+      ).ssl,
+    ).toBe(false);
+  });
   it("uses a one-connection pool with verified TLS in production", () => {
     expect(createPoolOptions(parseServerConfig(environment))).toMatchObject({
       max: 1,
