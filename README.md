@@ -73,6 +73,10 @@ Setup and deployment instructions will be added only when they correspond to rep
 
 ## Foundation development setup
 
+For the current Docker Desktop + Supabase Local workflow, see
+[`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md).
+LOCAL and the hosted Fitness RPG Pilot are separate environments.
+
 Slice 1 provides a minimal application, server-side identity boundary and database readiness check.
 
 Use Node.js 22.13+ (22.x), 24.x or 26+ and pnpm 11.25.0. Validation was performed with Node.js 24.19.0.
