@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import {
   chromium,
@@ -46,6 +47,9 @@ vi.mock("@/server/training/workout-application", () => ({
 vi.mock("@/server/training/execution-application", () => ({
   getExecutionApplication: () => db.execution,
 }));
+vi.mock("@/server/training/correction-application", () => ({
+  getCorrectionApplication: () => db.corrections,
+}));
 vi.mock("@/server/db/runtime", () => ({
   getDatabaseReadinessGateway: () => ({
     check: async () => {
@@ -80,6 +84,7 @@ import * as finish from "@/app/api/sessions/[id]/finish/route";
 import * as cancel from "@/app/api/sessions/[id]/cancel/route";
 import * as history from "@/app/api/sessions/route";
 import * as detail from "@/app/api/sessions/[id]/route";
+import * as corrections from "@/app/api/sessions/[id]/correct/route";
 
 // Only the external Auth identity and HTTP transport are fixtures.
 // Browser renders the real Next production build; handlers/application/SQL/migrations are real.
@@ -121,6 +126,7 @@ const routes: [RegExp, Partial<Record<Method, Handler>>][] = [
   [/^\/api\/sets\/([^/]+)\/uncomplete$/, uncomplete],
   [/^\/api\/sessions\/([^/]+)\/finish$/, finish],
   [/^\/api\/sessions\/([^/]+)\/cancel$/, cancel],
+  [/^\/api\/sessions\/([^/]+)\/correct$/, corrections],
   [/^\/api\/sessions$/, history],
   [/^\/api\/sessions\/([^/]+)$/, detail],
 ];
@@ -263,6 +269,358 @@ async function startWorkout() {
     page.getByRole("button", { name: "Add draft set" }).first(),
   ).toBeVisible();
 }
+it("Finished corrections save local edits atomically, retain drafts, survive reload/login and leave rotation unchanged", async () => {
+  const pressDefinition = await db.app.createExercise(userId, {
+    name: "Press",
+    loadType: "WEIGHTED",
+  });
+  const other = await db.app.createExercise(userId, {
+    name: "Other",
+    loadType: "BODYWEIGHT",
+  });
+  const body = await db.app.createExercise(userId, {
+    name: "Forgotten Squat",
+    loadType: "BODYWEIGHT",
+  });
+  await db.app.createProgram(userId, {
+    name: "Pilot",
+    initialTemplate: {
+      name: "Workout A",
+      exercises: [pressDefinition, other].map((e) => ({
+        exerciseId: e.id,
+        targetWorkingSets: 2,
+        targetRepsMin: 8,
+        targetRepsMax: 12,
+      })),
+    },
+  });
+  await login();
+  await startWorkout();
+  const cards = page.locator("section.exercise");
+  const press = cards.filter({
+    has: page.getByRole("heading", { name: "Press", exact: true }),
+  });
+  for (let i = 0; i < 2; i++) {
+    await press
+      .getByRole("button", { name: "Add draft set", exact: true })
+      .click();
+    const set = press.getByRole("article", {
+      name: `Set ${i + 1}`,
+      exact: true,
+    });
+    await set.getByLabel("External load (kg)", { exact: true }).fill("22.5");
+    await set.getByLabel("Reps", { exact: true }).fill("8");
+    await set.getByRole("button", { name: "Save values", exact: true }).click();
+    await set.getByRole("button", { name: "Complete", exact: true }).click();
+    await browserExpect(
+      set.getByText("Completed", { exact: true }),
+    ).toBeVisible();
+  }
+  await press
+    .getByRole("button", { name: "Add draft set", exact: true })
+    .click();
+  await browserExpect(
+    press.getByRole("article", { name: "Set 3", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Finish Workout", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm finish", exact: true })
+    .click();
+  await browserExpect(
+    page.getByRole("button", { name: "Edit", exact: true }),
+  ).toBeVisible();
+  const original = await db.execution.historyDetail(
+    userId,
+    (await db.execution.history(userId))[0].id,
+  );
+  const next = await db.workouts.next(userId);
+  let saves = 0;
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().endsWith("/correct")) saves++;
+  });
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await browserExpect(
+    page.getByText("Edit Finished Workout", { exact: true }),
+  ).toBeVisible();
+  const first = press.getByRole("article", { name: "Set 1", exact: true });
+  await first
+    .getByLabel("External load (kg)", { exact: true })
+    .fill("23.75000000000000001");
+  await first.getByLabel("Reps", { exact: true }).fill("9");
+  await first.getByLabel("Set type").selectOption("WARM_UP");
+  await first.getByLabel("RIR (optional)").fill("0");
+  await press
+    .getByRole("article", { name: "Set 2", exact: true })
+    .getByRole("button", { name: "Delete Set", exact: true })
+    .click();
+  const draft = press.getByRole("article", { name: "Set 3", exact: true });
+  await browserExpect(draft.getByLabel("Reps", { exact: true })).toHaveCount(0);
+  await browserExpect(
+    draft.getByRole("button", { name: /Complete/ }),
+  ).toHaveCount(0);
+  await press.getByRole("button", { name: "Add Set", exact: true }).click();
+  const forgotten = press.getByRole("article", { name: "Set 4", exact: true });
+  await forgotten.getByLabel("External load (kg)", { exact: true }).fill("25");
+  await forgotten.getByLabel("Reps", { exact: true }).fill("10");
+  await cards
+    .filter({ has: page.getByRole("heading", { name: "Other", exact: true }) })
+    .getByRole("checkbox", { name: "Skipped", exact: true })
+    .check();
+  await page
+    .getByLabel("Forgotten Exercise", { exact: true })
+    .selectOption(body.id);
+  await page.getByRole("button", { name: "Add Exercise", exact: true }).click();
+  const squat = cards.filter({
+    has: page.getByRole("heading", { name: "Forgotten Squat", exact: true }),
+  });
+  await squat.getByRole("button", { name: "Add Set", exact: true }).click();
+  await squat.getByLabel("Reps", { exact: true }).fill("6");
+  expect(saves).toBe(0);
+  expect(await db.execution.historyDetail(userId, original.id)).toEqual(
+    original,
+  );
+  await page
+    .getByRole("button", { name: "Save corrections", exact: true })
+    .click();
+  await browserExpect(
+    page.getByRole("button", { name: "Edit", exact: true }),
+  ).toBeVisible();
+  expect(saves).toBe(1);
+  const saved = await db.execution.historyDetail(userId, original.id);
+  expect(saved).toMatchObject({
+    status: "FINISHED",
+    correctionRevision: 1,
+    finishOrder: original.finishOrder,
+    finishedAt: original.finishedAt,
+    plannedWorkingSetQuota: 4,
+  });
+  expect(saved.exercises[0].sets).toHaveLength(3);
+  expect(saved.exercises[0].sets[1].completedAt).toBeNull();
+  expect(saved.exercises[1].skipped).toBe(true);
+  expect(saved.exercises[2]).toMatchObject({
+    origin: "SESSION_ONLY",
+    plannedWorkingSets: 0,
+    sets: [{ reps: 6 }],
+  });
+  expect(await db.workouts.next(userId)).toEqual(next);
+  await page.reload();
+  await browserExpect(
+    page.getByText("23.75000000000000001", { exact: false }),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByText("Draft — incomplete", { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/finished-corrections-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await press
+    .getByRole("article", { name: "Set 1", exact: true })
+    .getByLabel("Reps", { exact: true })
+    .fill("11");
+  page.once("dialog", (d) => void d.dismiss());
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await browserExpect(
+    page.getByText("Edit Finished Workout", { exact: true }),
+  ).toBeVisible();
+  page.once("dialog", (d) => void d.dismiss());
+  await page
+    .getByRole("button", { name: "Cancel editing", exact: true })
+    .click();
+  await browserExpect(
+    page.getByText("Edit Finished Workout", { exact: true }),
+  ).toBeVisible();
+  // A cancelled browser Back must retain local input, not merely reload detail.
+  page.once("dialog", (d) => void d.dismiss());
+  await page.goBack();
+  await browserExpect(
+    page.getByText("Edit Finished Workout", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(
+    press
+      .getByRole("article", { name: "Set 1", exact: true })
+      .getByLabel("Reps", { exact: true }),
+  ).toHaveValue("11");
+  page.once("dialog", (d) => void d.accept());
+  await page
+    .getByRole("button", { name: "Cancel editing", exact: true })
+    .click();
+  await browserExpect(
+    page.getByRole("button", { name: "Edit", exact: true }),
+  ).toBeVisible();
+  expect(await db.execution.historyDetail(userId, original.id)).toEqual(saved);
+  await page.getByRole("button", { name: "Log out", exact: true }).click();
+  await login();
+  await page.getByRole("link", { name: "History", exact: true }).click();
+  await page.locator(`a[href="/history/${original.id}"]`).click();
+  await browserExpect(
+    page.getByText("23.75000000000000001", { exact: false }),
+  ).toBeVisible();
+});
+it.each(["edit", "delete"])(
+  "Finished editor recovers from stale Save after confirmed refresh (external %s); session-only delete requires confirmation",
+  async (externalChange) => {
+    await seed();
+    const plan = (await db.app.activeProgram(userId))!;
+    const { session } = await db.workouts.start(userId, {
+      templateId: plan.templates[0].id,
+    });
+    const e = await db.execution.addExercise(userId, session.id, {
+      exerciseId: plan.templates[0].exercises[0].exerciseId,
+    });
+    const s = await db.execution.createSet(userId, e.id, {
+      id: randomUUID(),
+      loadKg: "20",
+      reps: 8,
+    });
+    await db.execution.completeSet(userId, s.id);
+    const draft = await db.execution.createSet(userId, e.id, {
+      id: randomUUID(),
+    });
+    await db.execution.finish(userId, session.id, { timeZone: "UTC" });
+    await login();
+    await page.getByRole("link", { name: "History", exact: true }).click();
+    await page.locator(`a[href="/history/${session.id}"]`).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const sessionOnly = page
+      .locator("section.exercise")
+      .filter({ has: page.getByLabel("Exercise identity", { exact: true }) });
+    page.once("dialog", (d) => void d.dismiss());
+    await sessionOnly
+      .getByRole("button", { name: "Delete Exercise", exact: true })
+      .click();
+    await browserExpect(sessionOnly).toHaveCount(1);
+    await sessionOnly.getByLabel("Reps", { exact: true }).fill("9");
+    // Local add/delete state must also be discarded by the successful refresh.
+    await sessionOnly
+      .getByRole("article", { name: "Set 2", exact: true })
+      .getByRole("button", { name: "Delete Set", exact: true })
+      .click();
+    await sessionOnly
+      .getByRole("button", { name: "Add Set", exact: true })
+      .click();
+    const localAddition = sessionOnly.getByRole("article", {
+      name: "Set 3",
+      exact: true,
+    });
+    await localAddition
+      .getByLabel("External load (kg)", { exact: true })
+      .fill("20");
+    await localAddition.getByLabel("Reps", { exact: true }).fill("6");
+    await db.corrections.correct(userId, session.id, {
+      expected_revision: 0,
+      ...(externalChange === "edit"
+        ? {
+            setEdits: [
+              { id: s.id, type: "WORKING", loadKg: "21", reps: 10, rir: null },
+            ],
+          }
+        : { setDeletions: [s.id] }),
+    });
+    await page
+      .getByRole("button", { name: "Save corrections", exact: true })
+      .click();
+    await browserExpect(page.locator("main").getByRole("alert")).toContainText(
+      "saved state has changed",
+    );
+    const canonical = await db.execution.historyDetail(userId, session.id);
+    expect(canonical.correctionRevision).toBe(1);
+    if (externalChange === "edit")
+      expect(canonical.exercises[1].sets[0]).toMatchObject({
+        reps: 10,
+        loadKg: "21",
+      });
+    else
+      expect(canonical.exercises[1].sets.map((set) => set.id)).toEqual([
+        draft.id,
+      ]);
+    await browserExpect(
+      sessionOnly
+        .getByRole("article", { name: "Set 1", exact: true })
+        .getByLabel("Reps", { exact: true }),
+    ).toHaveValue("9");
+    await browserExpect(localAddition).toBeVisible();
+    await browserExpect(
+      page.getByText("Edit Finished Workout", { exact: true }),
+    ).toBeVisible();
+    // A declined refresh retains the stale local input and revision.
+    page.once("dialog", (dialog) => void dialog.dismiss());
+    await page
+      .getByRole("button", { name: "Refresh saved state", exact: true })
+      .click();
+    await browserExpect(
+      sessionOnly
+        .getByRole("article", { name: "Set 1", exact: true })
+        .getByLabel("Reps", { exact: true }),
+    ).toHaveValue("9");
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page
+      .getByRole("button", { name: "Refresh saved state", exact: true })
+      .click();
+    await browserExpect(
+      page.getByText("Saved state refreshed.", { exact: true }),
+    ).toBeVisible();
+    await browserExpect(localAddition).toHaveCount(0);
+    await browserExpect(
+      sessionOnly.getByRole("article", { name: "Set 2", exact: true }),
+    ).toBeVisible();
+    await browserExpect(
+      page.getByRole("button", { name: "Save corrections", exact: true }),
+    ).toBeDisabled();
+    await browserExpect(page.locator("main").getByRole("alert")).toHaveCount(0);
+    if (externalChange === "edit") {
+      const refreshed = sessionOnly.getByRole("article", {
+        name: "Set 1",
+        exact: true,
+      });
+      await browserExpect(
+        refreshed.getByLabel("Reps", { exact: true }),
+      ).toHaveValue("10");
+      await refreshed.getByLabel("RIR (optional)", { exact: true }).fill("1");
+    } else {
+      await browserExpect(
+        sessionOnly.getByRole("article", { name: "Set 1", exact: true }),
+      ).toHaveCount(0);
+      await sessionOnly
+        .getByRole("button", { name: "Add Set", exact: true })
+        .click();
+      const added = sessionOnly.getByRole("article", {
+        name: "Set 3",
+        exact: true,
+      });
+      await added.getByLabel("External load (kg)", { exact: true }).fill("25");
+      await added.getByLabel("Reps", { exact: true }).fill("12");
+    }
+    await page
+      .getByRole("button", { name: "Save corrections", exact: true })
+      .click();
+    await browserExpect(
+      page.getByRole("button", { name: "Edit", exact: true }),
+    ).toBeVisible();
+    const saved = await db.execution.historyDetail(userId, session.id);
+    expect(saved.correctionRevision).toBe(2);
+    expect(
+      saved.exercises[1].sets.some(
+        (set) => set.id === draft.id && !set.completedAt,
+      ),
+    ).toBe(true);
+    if (externalChange === "edit")
+      expect(
+        saved.exercises[1].sets.find((set) => set.id === s.id),
+      ).toMatchObject({ reps: 10, rir: 1 });
+    else {
+      expect(saved.exercises[1].sets.some((set) => set.id === s.id)).toBe(
+        false,
+      );
+      expect(
+        saved.exercises[1].sets.find((set) => set.completedAt),
+      ).toMatchObject({ position: 2, reps: 12, loadKg: "25" });
+    }
+  },
+);
 it("mobile user logs in, prepares all load types, starts, corrects/completes sets, finishes partial, reloads History and logs out", async () => {
   await page.goto(origin + "/login");
   await page.getByLabel("Email", { exact: true }).fill("pilot@example.test");

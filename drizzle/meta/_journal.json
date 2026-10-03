@@ -50,6 +50,13 @@
       "when": 1790948674718,
       "tag": "0006_repeatable_workout",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791009999957,
+      "tag": "0007_finished_session_corrections",
+      "breakpoints": true
     }
   ]
 }

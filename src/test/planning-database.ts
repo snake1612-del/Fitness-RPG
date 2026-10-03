@@ -8,6 +8,8 @@ import { createWorkoutApplication } from "@/application/training/workout";
 import { createWorkoutRepository } from "@/server/training/workout-repository";
 import { createExecutionApplication } from "@/application/training/execution";
 import { createExecutionRepository } from "@/server/training/execution-repository";
+import { createCorrectionApplication } from "@/application/training/corrections";
+import { createCorrectionRepository } from "@/server/training/correction-repository";
 
 export async function planningDatabase() {
   const postgres = await PGlite.create();
@@ -68,6 +70,9 @@ export async function planningDatabase() {
     app,
     workouts,
     execution,
+    corrections: createCorrectionApplication(
+      createCorrectionRepository(database),
+    ),
     database,
     setQueryHook(hook?: typeof queryHook) {
       queryHook = hook;

@@ -241,11 +241,12 @@ it("Skip persists without fake Sets, blocks completion, supports undo and reject
   await expect(
     db.execution.skipExercise(alice, parent, { skipped: false }),
   ).rejects.toMatchObject({ code: "conflict" });
-  await expect(
-    db.postgres.query("UPDATE session_exercise SET skipped=false WHERE id=$1", [
-      parent,
-    ]),
-  ).rejects.toThrow();
+  // The dedicated FINISHED correction boundary now permits this whitelist
+  // field at SQL level; ordinary ACTIVE application commands still reject it.
+  await db.postgres.query(
+    "UPDATE session_exercise SET skipped=false WHERE id=$1",
+    [parent],
+  );
 });
 
 it("new guards keep browser roles denied and helpers non-executable", async () => {
