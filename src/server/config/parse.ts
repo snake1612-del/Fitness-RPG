@@ -1,56 +1,46 @@
 import { X509Certificate } from "node:crypto";
-
 export type ServerConfig = {
   nodeEnv: "development" | "production" | "test";
   databaseUrl: string;
-  supabaseUrl: string;
-  supabasePublishableKey: string;
+  betterAuthUrl: string;
+  betterAuthSecret: string;
   databaseSslCa?: string;
   localDev: boolean;
 };
-
 export class ServerConfigError extends Error {
   constructor(readonly issues: string[]) {
     super(`Invalid server configuration: ${issues.join(", ")}`);
     this.name = "ServerConfigError";
   }
 }
-
 type Environment = Record<string, string | undefined>;
-
-function required(env: Environment, name: string, issues: string[]): string {
-  const value = env[name]?.trim();
-  if (!value) {
-    issues.push(`${name} is required`);
-    return "";
-  }
-  return value;
-}
-
+const loopback = (host: string) =>
+  ["127.0.0.1", "localhost", "[::1]"].includes(host);
 export function parseServerConfig(env: Environment): ServerConfig {
   const issues: string[] = [];
-  const rawMode = env.NODE_ENV ?? "development";
-  if (!["development", "production", "test"].includes(rawMode)) {
+  function required(name: string) {
+    const value = env[name]?.trim() ?? "";
+    if (!value) issues.push(`${name} is required`);
+    return value;
+  }
+  const nodeEnv = (env.NODE_ENV ?? "development") as ServerConfig["nodeEnv"];
+  if (!["development", "production", "test"].includes(nodeEnv))
     issues.push("NODE_ENV must be development, production, or test");
-  }
-  const nodeEnv = rawMode as ServerConfig["nodeEnv"];
   const localDev = env.LOCAL_DEV === "true";
-  if (
-    env.LOCAL_DEV !== undefined &&
-    !["true", "false"].includes(env.LOCAL_DEV)
-  ) {
+  if (env.LOCAL_DEV !== undefined && !["true", "false"].includes(env.LOCAL_DEV))
     issues.push("LOCAL_DEV must be true or false");
-  }
-  if (localDev && nodeEnv !== "development") {
+  if (localDev && nodeEnv !== "development")
     issues.push("LOCAL_DEV is allowed only with NODE_ENV=development");
-  }
-  const databaseUrl = required(env, "DATABASE_URL", issues);
-  const supabaseUrl = required(env, "SUPABASE_URL", issues);
-  const supabasePublishableKey = required(
-    env,
-    "SUPABASE_PUBLISHABLE_KEY",
-    issues,
-  );
+  let databaseUrl = required("DATABASE_URL");
+  const betterAuthUrl = required("BETTER_AUTH_URL"),
+    betterAuthSecret = required("BETTER_AUTH_SECRET");
+  if (
+    betterAuthSecret &&
+    (betterAuthSecret.length < 32 || /replace[-_]me/i.test(betterAuthSecret))
+  )
+    issues.push(
+      "BETTER_AUTH_SECRET must be a non-placeholder secret of at least 32 characters",
+    );
   const databaseSslCa = env.DATABASE_SSL_CA?.replace(/\\n/g, "\n").trim();
   if (databaseSslCa) {
     try {
@@ -59,77 +49,71 @@ export function parseServerConfig(env: Environment): ServerConfig {
       issues.push("DATABASE_SSL_CA must be a valid PEM certificate");
     }
   }
-
   if (databaseUrl) {
     try {
-      const parsed = new URL(databaseUrl);
-      if (!["postgres:", "postgresql:"].includes(parsed.protocol)) {
+      const url = new URL(databaseUrl);
+      if (!["postgres:", "postgresql:"].includes(url.protocol))
         issues.push("DATABASE_URL must use a PostgreSQL scheme");
-      }
-      if (!parsed.hostname || !parsed.username || !parsed.password) {
-        issues.push("DATABASE_URL must include host and credentials");
-      }
       if (
-        localDev &&
-        !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)
-      ) {
+        !url.hostname ||
+        !url.username ||
+        !url.password ||
+        !url.pathname ||
+        url.pathname === "/"
+      )
+        issues.push("DATABASE_URL must include host, credentials and database");
+      if (localDev && !loopback(url.hostname))
         issues.push("LOCAL_DEV requires a loopback DATABASE_URL");
-      }
-      if (nodeEnv === "production") {
-        const sharedPooler = parsed.hostname.endsWith(".pooler.supabase.com");
-        const dedicatedPooler = /^db\.[a-z0-9-]+\.supabase\.co$/.test(
-          parsed.hostname,
-        );
-        if ((!sharedPooler && !dedicatedPooler) || parsed.port !== "6543") {
-          issues.push("DATABASE_URL must use the Supabase transaction pooler");
-        }
-      }
+      if (nodeEnv === "production" && loopback(url.hostname))
+        issues.push("Production DATABASE_URL must not use loopback");
+      // Accept Neon-style TLS intent, then remove it so pg cannot replace our
+      // verified ssl object. Every other driver override remains forbidden.
+      const parameters = [...url.searchParams];
       if (
-        ["sslmode", "sslcert", "sslkey", "sslrootcert"].some((key) =>
-          parsed.searchParams.has(key),
-        )
-      ) {
-        issues.push("DATABASE_URL must leave TLS settings to the server pool");
-      }
+        url.hash ||
+        parameters.some(
+          ([key, value]) =>
+            key !== "sslmode" ||
+            localDev ||
+            !["require", "verify-full"].includes(value),
+        ) ||
+        parameters.length > 1
+      )
+        issues.push(
+          "DATABASE_URL must leave TLS settings and driver options to the server pool",
+        );
+      url.search = "";
+      databaseUrl = url.toString();
     } catch {
       issues.push("DATABASE_URL must be a valid URL");
     }
   }
-
-  if (supabaseUrl) {
+  if (betterAuthUrl) {
     try {
-      const parsed = new URL(supabaseUrl);
+      const url = new URL(betterAuthUrl);
+      if (url.origin !== betterAuthUrl || url.username || url.password)
+        issues.push(
+          "BETTER_AUTH_URL must be an exact origin without path, credentials or query",
+        );
       if (
         localDev
-          ? parsed.protocol !== "http:" ||
-            !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)
-          : parsed.protocol !== "https:" || !parsed.hostname
-      ) {
-        issues.push("SUPABASE_URL must be an HTTPS URL");
-      }
+          ? url.protocol !== "http:" || !loopback(url.hostname)
+          : url.protocol !== "https:"
+      )
+        issues.push(
+          "BETTER_AUTH_URL must use HTTPS outside explicit loopback LOCAL_DEV",
+        );
     } catch {
-      issues.push("SUPABASE_URL must be a valid URL");
+      issues.push("BETTER_AUTH_URL must be a valid URL");
     }
   }
-
-  if (
-    supabasePublishableKey &&
-    (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(supabasePublishableKey) ||
-      /replace[_-]me/i.test(supabasePublishableKey))
-  ) {
-    issues.push("SUPABASE_PUBLISHABLE_KEY is malformed");
-  }
-
-  if (issues.length > 0) {
-    throw new ServerConfigError(issues);
-  }
-
+  if (issues.length) throw new ServerConfigError(issues);
   return {
     nodeEnv,
-    databaseUrl,
-    supabaseUrl,
-    supabasePublishableKey,
     localDev,
+    databaseUrl,
+    betterAuthUrl,
+    betterAuthSecret,
     ...(databaseSslCa ? { databaseSslCa } : {}),
   };
 }

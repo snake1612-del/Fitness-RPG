@@ -1,4 +1,4 @@
-import { getSupabaseIdentityProvider } from "@/server/auth/supabase";
+import { getIdentityProvider } from "@/server/auth/better-auth";
 import { getPreviousPerformanceApplication } from "@/server/training/previous-performance-application";
 import { previousPerformanceResponse } from "@/server/http/previous-performance";
 
@@ -9,7 +9,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   return previousPerformanceResponse(
-    getSupabaseIdentityProvider,
+    getIdentityProvider,
     getPreviousPerformanceApplication,
     (await context.params).id,
   );

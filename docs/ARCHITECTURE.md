@@ -3,6 +3,18 @@
 **Status:** Frozen  
 **Scope:** MVP v0.1
 
+## M1 runtime clarification
+
+Application Auth is self-hosted Better Auth inside Next.js. AuthIdentityProvider
+validates a database session and exposes only the UUID. Auth persistence uses
+permanent better_auth.*; Training stays public.*, without Auth FK, mapping or
+ID translation. M1 LOCAL retains Supabase Local PostgreSQL; Supabase auth.* is
+untouched and no longer application authority. Target M2 LOCAL is Docker
+PostgreSQL 17; target hosted DB is Neon PostgreSQL 17 with Vercel unchanged.
+Drizzle + pg, verified TLS, small pool and Training transactions remain.
+Canonical 0008 owns Auth DDL; runtime never auto-migrates. Provider references
+below describe the pre-M1 baseline/Pilot, which this PR does not deploy or modify.
+
 This document defines the approved implementation architecture.
 
 It does not redefine Training or Gamification semantics.

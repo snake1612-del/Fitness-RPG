@@ -19,22 +19,21 @@ import {
   vi,
 } from "vitest";
 vi.mock("server-only", () => ({}));
-vi.mock("@/server/auth/supabase", () => ({
-  getSupabaseIdentityProvider: async () => ({
+vi.mock("@/server/auth/better-auth", () => ({
+  getIdentityProvider: async () => ({
     currentIdentity: async () => (loggedIn ? { id: userId } : null),
   }),
-  getSupabaseAuthClient: async () => ({
-    auth: {
-      signInWithPassword: async ({ password }: { password: string }) => {
-        if (password !== "pilot-password")
-          return { error: new Error("invalid") };
-        loggedIn = true;
-        return { error: null };
-      },
-      signOut: async () => {
+  getAuth: () => ({
+    handler: async (req: Request) => {
+      if (new URL(req.url).pathname.endsWith("sign-out")) {
         loggedIn = false;
-        return { error: null };
-      },
+        return new Response(null);
+      }
+      const body = await req.json();
+      if (body.password !== "pilot-password")
+        return new Response(null, { status: 401 });
+      loggedIn = true;
+      return new Response(null);
     },
   }),
 }));

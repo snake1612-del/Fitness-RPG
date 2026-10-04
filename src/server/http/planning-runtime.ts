@@ -1,6 +1,6 @@
 import "server-only";
 import type { PlanningApplication } from "@/application/training/planning";
-import { getSupabaseIdentityProvider } from "../auth/supabase";
+import { getIdentityProvider } from "../auth/better-auth";
 import { getPlanningApplication } from "../training/application";
 import { withPlanning } from "./planning";
 
@@ -12,7 +12,7 @@ export function planningResponse(
   status = 200,
 ) {
   return withPlanning(
-    getSupabaseIdentityProvider,
+    getIdentityProvider,
     getPlanningApplication,
     action,
     status,

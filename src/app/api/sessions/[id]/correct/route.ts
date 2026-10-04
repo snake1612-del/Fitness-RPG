@@ -1,4 +1,4 @@
-import { getSupabaseIdentityProvider } from "@/server/auth/supabase";
+import { getIdentityProvider } from "@/server/auth/better-auth";
 import { getCorrectionApplication } from "@/server/training/correction-application";
 import { withCorrection } from "@/server/http/corrections";
 import { readPlanningJson } from "@/server/http/planning";
@@ -10,7 +10,7 @@ export async function POST(
 ) {
   const { id } = await context.params;
   return withCorrection(
-    getSupabaseIdentityProvider,
+    getIdentityProvider,
     getCorrectionApplication,
     async (app, userId) =>
       app.correct(userId, id, await readPlanningJson(request)),

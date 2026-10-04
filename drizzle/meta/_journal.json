@@ -57,6 +57,13 @@
       "when": 1791009999957,
       "tag": "0007_finished_session_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791122860936,
+      "tag": "0008_better_auth",
+      "breakpoints": true
     }
   ]
 }

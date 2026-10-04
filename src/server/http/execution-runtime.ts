@@ -1,6 +1,6 @@
 import "server-only";
 import type { ExecutionApplication } from "@/application/training/execution";
-import { getSupabaseIdentityProvider } from "../auth/supabase";
+import { getIdentityProvider } from "../auth/better-auth";
 import { getExecutionApplication } from "../training/execution-application";
 import { withExecution } from "./execution";
 export function executionResponse(
@@ -8,7 +8,7 @@ export function executionResponse(
   status = 200,
 ) {
   return withExecution(
-    getSupabaseIdentityProvider,
+    getIdentityProvider,
     getExecutionApplication,
     action,
     status,

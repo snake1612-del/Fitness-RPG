@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile } from "node:fs/promises";
@@ -22,7 +23,7 @@ export function cleanEnvironment(source = process.env) {
   return Object.fromEntries(
     Object.entries(source).filter(
       ([key]) =>
-        !/^(SUPABASE_|DATABASE_|MIGRATION_|PILOT_|VERCEL_|DOCKER_HOST$|DOCKER_CONTEXT$|DOCKER_TLS_VERIFY$|DOCKER_CERT_PATH$|LOCAL_DEV$|PGHOST$|PGPORT$|PGUSER$|PGPASSWORD$|PGDATABASE$|PGSERVICE$|PGSSLMODE$)/i.test(
+        !/^(BETTER_AUTH_|SUPABASE_|DATABASE_|MIGRATION_|PILOT_|VERCEL_|DOCKER_HOST$|DOCKER_CONTEXT$|DOCKER_TLS_VERIFY$|DOCKER_CERT_PATH$|LOCAL_DEV$|PGHOST$|PGPORT$|PGUSER$|PGPASSWORD$|PGDATABASE$|PGSERVICE$|PGSSLMODE$)/i.test(
           key,
         ),
     ),
@@ -74,8 +75,13 @@ async function status() {
     JSON.parse(await supabase(["status", "-o", "json"])),
   );
 }
-async function environment(local) {
-  const target = resolve(root, ".env.local");
+export async function environment(
+  local,
+  target = resolve(root, ".env.local"),
+  port = process.env.LOCAL_DEV_PORT ?? "3000",
+) {
+  if (!/^\d+$/.test(port) || Number(port) < 1024 || Number(port) > 65535)
+    throw new Error("Local development port must be 1024–65535.");
   let existing;
   try {
     existing = await readFile(target, "utf8");
@@ -86,10 +92,16 @@ async function environment(local) {
     throw new Error(
       "Existing .env.local is not managed LOCAL configuration. Move it aside manually; it will not be overwritten.",
     );
+  const saved = existing?.match(/^BETTER_AUTH_SECRET=(.+)$/m)?.[1];
+  const secret = saved
+    ? JSON.parse(saved)
+    : randomBytes(32).toString("base64url");
+  if (typeof secret !== "string" || secret.length < 32)
+    throw new Error("Local auth secret is invalid; refusing rotation.");
   const vars = {
+    BETTER_AUTH_URL: "http://localhost:" + port,
+    BETTER_AUTH_SECRET: secret,
     LOCAL_DEV: "true",
-    SUPABASE_URL: local.API_URL,
-    SUPABASE_PUBLISHABLE_KEY: local.PUBLISHABLE_KEY,
     DATABASE_URL: local.DB_URL,
     MIGRATION_DATABASE_URL: local.DB_URL,
   };
@@ -154,6 +166,7 @@ async function migration(local) {
       )
     )
       throw new Error("Local migration verification failed.");
+    await pool.query('SELECT id FROM better_auth."user" LIMIT 1');
     await pool.query(
       "SELECT correction_revision FROM public.workout_session LIMIT 1",
     );

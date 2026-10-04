@@ -1,23 +1,20 @@
 import type { AuthIdentityProvider } from "@/application/foundation/ports";
-
-type ClaimsReader = {
-  getClaims(): Promise<{
-    data: { claims: { sub?: unknown } } | null;
-    error: unknown;
-  }>;
-};
-
+type SessionReader = () => Promise<{ user: { id: string } } | null>;
 export function createIdentityProvider(
-  auth: ClaimsReader,
+  readSession: SessionReader,
 ): AuthIdentityProvider {
   return {
     async currentIdentity() {
-      const { data, error } = await auth.getClaims();
-      const subject = data?.claims.sub;
-      if (error || typeof subject !== "string" || subject.length === 0) {
+      const session = await readSession();
+      const id = session?.user.id;
+      if (
+        !id ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          id,
+        )
+      )
         return null;
-      }
-      return { id: subject };
+      return { id };
     },
   };
 }

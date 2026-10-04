@@ -61,6 +61,17 @@ export async function planningDatabase() {
       };
     },
   });
+  // Better Auth uses direct pool reads as well as transaction clients.
+  Object.defineProperty(pool, "query", {
+    value: async (input: string | QueryConfig, values: unknown[] = []) => {
+      const client = await pool.connect();
+      try {
+        return await client.query(input, values);
+      } finally {
+        client.release();
+      }
+    },
+  });
   const database = drizzle({ client: pool });
   const app = createPlanningApplication(createPlanningRepository(database));
   const workouts = createWorkoutApplication(createWorkoutRepository(database));
