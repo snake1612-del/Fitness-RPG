@@ -1,27 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { createIdentityProvider } from "./identity";
-import { getProtectedIdentity } from "@/application/foundation/use-cases";
-
-describe("verified Supabase identity boundary", () => {
-  it("passes only the verified subject to the application layer", async () => {
-    const getClaims = vi.fn().mockResolvedValue({
-      data: { claims: { sub: "user-123", private_metadata: "hidden" } },
-      error: null,
-    });
-    const provider = createIdentityProvider({ getClaims });
-    expect(await getProtectedIdentity(provider)).toEqual({ id: "user-123" });
-    expect(getClaims).toHaveBeenCalledOnce();
-  });
-
-  it.each([
-    { data: null, error: null },
-    { data: { claims: {} }, error: null },
-    { data: { claims: { sub: 42 } }, error: null },
-    { data: { claims: { sub: "forged" } }, error: new Error("invalid token") },
-  ])("rejects absent or unverified identity", async (result) => {
-    const provider = createIdentityProvider({
-      getClaims: vi.fn().mockResolvedValue(result),
-    });
-    expect(await getProtectedIdentity(provider)).toBeNull();
-  });
-});
+const id = "00000000-0000-4000-8000-000000000001";
+it("maps only validated session UUID through durable identity boundary", async () =>
+  expect(
+    await createIdentityProvider(async () => ({
+      user: { id },
+    })).currentIdentity(),
+  ).toEqual({ id }));
+it.each([null, { user: { id: "forged" } }, { user: { id: "" } }])(
+  "rejects missing/non UUID session",
+  async (value) =>
+    expect(
+      await createIdentityProvider(async () => value).currentIdentity(),
+    ).toBeNull(),
+);
+it("propagates unavailable session reads rather than trusting claims", async () =>
+  await expect(
+    createIdentityProvider(async () => {
+      throw new Error("unavailable");
+    }).currentIdentity(),
+  ).rejects.toThrow());

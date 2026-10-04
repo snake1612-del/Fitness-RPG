@@ -1,62 +1,72 @@
-type AuthClient = {
-  auth: {
-    signInWithPassword(credentials: {
-      email: string;
-      password: string;
-    }): Promise<{ error: unknown }>;
-    signOut(options: { scope: "local" }): Promise<{ error: unknown }>;
-  };
-};
+import type { createAuth } from "../auth/options";
+type Auth = Pick<ReturnType<typeof createAuth>, "handler">;
 const headers = { "Cache-Control": "no-store" };
-
 export async function authAction(
   request: Request,
-  getClient: () => Promise<AuthClient>,
+  getAuth: () => Auth,
   action: "login" | "logout",
 ): Promise<Response> {
-  // Credential and logout actions must originate from this browser origin.
   if (request.headers.get("origin") !== new URL(request.url).origin)
     return Response.json({ error: "forbidden" }, { status: 403, headers });
   try {
-    let credentials: { email: string; password: string } | undefined;
+    let body: { email: string; password: string } | undefined;
     if (action === "login") {
-      const body = await request.json().catch(() => null);
+      const input = await request.json().catch(() => null);
       if (
-        !body ||
-        typeof body !== "object" ||
-        typeof body.email !== "string" ||
-        !body.email.trim() ||
-        typeof body.password !== "string" ||
-        !body.password ||
-        body.email.length > 320 ||
-        body.password.length > 4096 ||
-        Object.keys(body).some((key) => !["email", "password"].includes(key))
+        !input ||
+        typeof input !== "object" ||
+        typeof input.email !== "string" ||
+        !input.email.trim() ||
+        typeof input.password !== "string" ||
+        !input.password ||
+        input.email.length > 320 ||
+        input.password.length > 4096 ||
+        Object.keys(input).some((key) => !["email", "password"].includes(key))
       )
         return Response.json(
           { error: "invalid_input" },
           { status: 400, headers },
         );
-      credentials = { email: body.email.trim(), password: body.password };
+      body = { email: input.email.trim(), password: input.password };
     }
-    const client = await getClient();
-    const { error } =
-      action === "login"
-        ? await client.auth.signInWithPassword(credentials!)
-        : await client.auth.signOut({ scope: "local" });
-    if (error) {
-      const authError = error as { status?: number; name?: string };
-      const unavailable =
-        action === "logout" ||
-        authError.name === "AuthRetryableFetchError" ||
-        (typeof authError.status === "number" && authError.status >= 429);
+    const auth = getAuth();
+    // Use the public HTTP handler so Better Auth origin checks and rate limiting
+    // also run for these app-facing aliases.
+    const url = new URL(request.url);
+    url.pathname =
+      action === "login" ? "/api/auth/sign-in/email" : "/api/auth/sign-out";
+    const authHeaders = new Headers(request.headers);
+    authHeaders.set("Content-Type", "application/json");
+    const result = await auth.handler(
+      new Request(url, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify(body ?? {}),
+      }),
+    );
+    if (!result.ok) {
+      const status =
+        result.status === 403
+          ? 403
+          : action === "login" && [400, 401, 422].includes(result.status)
+            ? 401
+            : 503;
       return Response.json(
         {
-          error: unavailable ? "service_unavailable" : "invalid_credentials",
+          error:
+            status === 403
+              ? "forbidden"
+              : status === 401
+                ? "invalid_credentials"
+                : "service_unavailable",
         },
-        { status: unavailable ? 503 : 401, headers },
+        { status, headers },
       );
     }
-    return Response.json({ ok: true }, { headers });
+    const response = Response.json({ ok: true }, { headers });
+    for (const cookie of result.headers.getSetCookie())
+      response.headers.append("Set-Cookie", cookie);
+    return response;
   } catch {
     return Response.json(
       { error: "service_unavailable" },

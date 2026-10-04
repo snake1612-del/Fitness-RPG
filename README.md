@@ -37,8 +37,8 @@ The repository should not be interpreted as containing a complete or usable Fitn
 - TypeScript
 - Drizzle ORM
 - PostgreSQL
-- Supabase PostgreSQL
-- Supabase Auth
+- PostgreSQL 17 (M1 Supabase Local substrate; target hosted Neon)
+- Self-hosted Better Auth inside Next.js
 - Vercel
 
 Architecture style:
@@ -92,30 +92,29 @@ pnpm build
 pnpm start
 ```
 
-Copy `.env.example` to `.env.local` and supply your project's `SUPABASE_URL`,
-`SUPABASE_PUBLISHABLE_KEY` and `DATABASE_URL` before checking external services.
-These variables are server-side configuration. Do not use a Supabase secret or
-service-role key in place of the publishable key.
+Copy `.env.example` to an uncommitted environment file for hosted configuration.
+Supply server-only BETTER_AUTH_URL (exact HTTPS origin), BETTER_AUTH_SECRET and
+DATABASE_URL. For LOCAL use the guarded wrappers in docs/LOCAL_DEVELOPMENT.md.
+SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are not application requirements.
 
-In production, `DATABASE_URL` must point to a Supabase transaction-mode pooler
-on port 6543. The application uses one connection per warm instance and enforces
-TLS certificate validation. Leave SSL query parameters out of the URL so they
-cannot override the pool's TLS configuration. node-postgres queries are unnamed;
-no persistent prepared statements are required.
-Both shared and dedicated transaction poolers are supported. If the server
-certificate requires a project root, set `DATABASE_SSL_CA` to the PEM certificate
-downloaded from Supabase Database settings (literal `\n` escapes are accepted).
+The provider-neutral pg pool retains one connection per warm instance, unnamed
+queries and verified TLS (rejectUnauthorized=true). Neon pooled PostgreSQL URL
+shape is supported. Safe sslmode=require/verify-full intent is stripped before pg;
+other URL driver overrides are rejected. Optional DATABASE_SSL_CA supplies a trusted
+PEM root (literal backslash-n escapes accepted). LOCAL_DEV alone permits loopback
+plaintext development; it is rejected in production.
 
 Foundation endpoints:
 
 - `GET /api/health`: application liveness, independent of external credentials.
 - `GET /api/ready`: database readiness; returns a safe 503 when unavailable.
-- `GET /api/foundation/me`: verifies cookie-based Supabase identity, then checks
+- `GET /api/foundation/me`: verifies a validated Better Auth database session UUID, then checks
   database readiness through the application boundary and Drizzle. Returns 401
   without an authenticated session and a safe 503 for configuration failures.
 
-The identity endpoint can refresh cookies in its Route Handler. No login UI or
-authenticated Server Component flow is implemented yet.
+Identity remains behind AuthIdentityProvider; login/logout use the Better Auth HTTP
+handler with same-origin protection and forwarded cookies. No private Server
+Component response is cached.
 
 Drizzle schema declarations are located in `src/server/db/schema.ts`; the
 configured migration output directory is `drizzle/`. Slice 2 adds only the four
@@ -123,13 +122,13 @@ planning tables and their migrations. Migration tooling uses a separate
 `MIGRATION_DATABASE_URL` for a trusted tooling connection; application runtime
 never reads it. No external migration command has been executed.
 
-Unit tests use adapters and mocks. Live Supabase Auth and PostgreSQL integration
+Unit tests use adapters and mocks. Live Better Auth and PostgreSQL integration
 must be verified separately with project credentials.
 
 ## Training planning developer workflow
 
 Planning is available through authenticated server APIs. No planning UI is implemented. All payloads use camelCase; ownership comes
-from the verified Supabase identity, never from request payloads.
+from the verified application identity, never from request payloads.
 
 | Method | Endpoint | Capability |
 | --- | --- | --- |
@@ -281,11 +280,9 @@ concurrency remain separate Milestone A acceptance checks.
 The mobile UI uses the existing Planning and Workout APIs. No schema, migration,
 Training rule, rotation, Progress or Gamification change is included.
 
-- `/login`: email/password login for an existing Supabase pilot account.
-  `POST /api/auth/login` and `POST /api/auth/logout` use the server SSR client
-  and cookie store; credentials remain outside URLs. Auth actions require the
-  same Origin and return no-store responses. API identity checks verify claims
-  and refresh cookies on requests. Pages contain only a public shell until
+- `/login`: email/password login for an existing Better Auth account.
+  `POST /api/auth/login` and `POST /api/auth/logout` use the Better Auth HTTP handler and forward cookies; credentials remain outside URLs. Auth actions require the
+  same Origin and return no-store responses. API identity checks validate database sessions and return UUIDs. Pages contain only a public shell until
   the protected API read succeeds; no private Server Component data is cached.
 - `/setup`: create custom exercises, create a Program with its first Template,
   activate a Program, add Templates and add Exercises with planned targets.
@@ -325,7 +322,7 @@ The E2E suite starts an isolated Next production server on port 3104 and renders
 the actual UI at a 375px viewport. Playwright intercepts the API transport to
 invoke real Route Handler exports, applications and Drizzle repositories against
 PGlite with all migrations. Only external Auth identity is a fixture.
-This does **not** exercise live Supabase Auth, cookie issuance over HTTPS,
+This does **not** exercise real Better Auth sessions, cookie issuance over HTTPS,
 the deployed runtime or the transaction-mode pooler.
 
 Coverage: login errors/logout/auth expiry, first-use with all three load types,
@@ -342,7 +339,7 @@ credentials or deployed pilot environment were available during this change.
 Milestone A retains an external acceptance gate.
 
 Before accepting Milestone A, configure the existing server environment
-(`SUPABASE_URL`, publishable key, runtime transaction-mode `DATABASE_URL`,
+(`BETTER_AUTH_URL`, server-only `BETTER_AUTH_SECRET`, pooled `DATABASE_URL`,
 and TLS CA where needed), apply migrations with trusted tooling, and provision a
 confirmed email/password pilot account. Registration/password recovery UI is
 outside this minimal pilot flow.
@@ -351,7 +348,7 @@ On the non-production HTTPS deployment, run:
 login → create exercise/Program/Template/targets → Start → save and Complete Set
 → Finish → reload → open History. Also reload an ACTIVE workout and Resume,
 then verify Cancel is excluded from completed History. Confirm the runtime
-actually uses the Supabase transaction-mode PostgreSQL pooler. Record live
+actually uses the configured pooled PostgreSQL endpoint. Record live
 evidence separately; automated fixtures cannot mark this gate as passed.
 
 ---

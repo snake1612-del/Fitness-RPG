@@ -1,5 +1,12 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cleanEnvironment, validateLocalStatus } from "../../scripts/local.mjs";
+import {
+  cleanEnvironment,
+  validateLocalStatus,
+  environment,
+} from "../../scripts/local.mjs";
 const local = {
   DB_URL: "postgresql://postgres:local-test-only@127.0.0.1:55322/postgres",
   API_URL: "http://127.0.0.1:55321",
@@ -10,6 +17,8 @@ describe("local tooling isolation", () => {
     expect(
       cleanEnvironment({
         PATH: "tools",
+        BETTER_AUTH_SECRET: "hosted-secret",
+        BETTER_AUTH_URL: "https://hosted.test",
         DATABASE_URL: "hosted",
         MIGRATION_DATABASE_URL: "hosted",
         SUPABASE_ACCESS_TOKEN: "secret",
@@ -42,4 +51,20 @@ describe("local tooling isolation", () => {
   ])("refuses unsafe target %j", (override) =>
     expect(() => validateLocalStatus({ ...local, ...override })).toThrow(),
   );
+});
+
+it("preserves local secret across start/dev and alternate port, rejects unmanaged files", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fitness-auth-"));
+  try {
+    const target = join(directory, ".env.local");
+    const first = await environment(local, target, "3001");
+    const again = await environment(local, target, "3002");
+    expect(again.BETTER_AUTH_SECRET).toBe(first.BETTER_AUTH_SECRET);
+    expect(first.BETTER_AUTH_SECRET.length).toBeGreaterThanOrEqual(32);
+    expect(again.BETTER_AUTH_URL).toBe("http://localhost:3002");
+    expect(await readFile(target, "utf8")).not.toContain("SUPABASE_");
+    await expect(environment(local, target, "80")).rejects.toThrow();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-vi.mock("@/server/auth/supabase", () => ({
-  getSupabaseIdentityProvider: async () => ({
+vi.mock("@/server/auth/better-auth", () => ({
+  getIdentityProvider: async () => ({
     currentIdentity: async () => (identity ? { id: identity } : null),
   }),
 }));

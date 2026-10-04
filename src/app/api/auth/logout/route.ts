@@ -1,7 +1,7 @@
-import { getSupabaseAuthClient } from "@/server/auth/supabase";
+import { getAuth } from "@/server/auth/better-auth";
 import { authAction } from "@/server/http/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export function POST(request: Request) {
-  return authAction(request, getSupabaseAuthClient, "logout");
+  return authAction(request, getAuth, "logout");
 }

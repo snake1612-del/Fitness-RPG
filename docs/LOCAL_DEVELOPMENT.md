@@ -1,7 +1,10 @@
 # Local development
 
-LOCAL uses Docker Desktop + Supabase Local + Next.js on Windows. HOSTED is the
-existing Fitness RPG Pilot + Vercel. No separate production environment is created.
+M1 LOCAL uses Docker Desktop + Supabase Local PostgreSQL + Next.js on Windows.
+Application authentication is self-hosted Better Auth, in `better_auth.*`.
+Supabase `auth.*` remains untouched infrastructure and is not application authority.
+M2 later replaces the substrate with Docker PostgreSQL 17; the namespace stays unchanged.
+Hosted Neon/Vercel setup is a separate step; M1 does not deploy or modify the Pilot.
 Never use hosted `DATABASE_URL` or `MIGRATION_DATABASE_URL` in local commands.
 
 ## First machine setup
@@ -15,16 +18,22 @@ Never use hosted `DATABASE_URL` or `MIGRATION_DATABASE_URL` in local commands.
    the `fitness-rpg-local` stack and dedicated Docker network, generates the
    gitignored `.env.local`, then applies and verifies canonical Drizzle migrations.
    An existing unmanaged `.env.local` is never overwritten: move it aside first.
-5. Open local Studio at <http://127.0.0.1:55323>. In Authentication → Users create
-   a local email/password user, with email confirmed. Choose local-only credentials;
-   do not reuse a hosted account. The app has no registration UI or Auth bypass.
-6. Run `pnpm dev:local`; open <http://localhost:3000> and sign in with that local user.
-7. Create Exercises/Program/Templates, log a workout and check History/corrections.
+5. Run `pnpm dev:local`; open the printed localhost origin (default port 3000).
+6. Provision a fresh LOCAL-only account using the supported Better Auth endpoint
+   `POST /api/auth/sign-up/email`, with JSON `name`, `email`, `password` and
+   the exact application `Origin` header. Use a private local client/tool; never
+   place credentials in command history, URLs, source files or logs. There is no
+   product signup screen. The signup endpoint is disabled outside LOCAL_DEV.
+7. Sign in through the existing application login UI, then create Training data.
+   Supabase Studio users are not Better Auth users; old Supabase sessions do not carry over.
+   Existing Training data remains stored under its original UUID; no identity translation occurs.
 
-All application env values come from `supabase status -o json` in memory; commands
-do not print keys or passwords. The generated `.env.local` contains only local
-`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `DATABASE_URL`,
-`MIGRATION_DATABASE_URL` and explicit `LOCAL_DEV=true`. Keep it uncommitted.
+The gitignored generated `.env.local` contains loopback `DATABASE_URL`,
+`MIGRATION_DATABASE_URL`, `LOCAL_DEV=true`, `BETTER_AUTH_URL` and
+`BETTER_AUTH_SECRET`. The secret is securely generated once and reused across
+start/dev/stop/start, including alternate ports. Do not delete this file during
+normal restart; losing the secret invalidates existing cookies. Commands discard
+inherited hosted Better Auth/Supabase/DB credentials and never print secret values.
 
 ## Daily commands
 
@@ -74,9 +83,9 @@ the external hosted secrets file. Local data lives in project-specific Docker
 volumes; stopping does not remove it or stop another local project's containers.
 
 `LOCAL_DEV=true` is accepted only with `NODE_ENV=development` and loopback DB +
-HTTP Auth endpoints. It explicitly disables DB TLS for local PostgreSQL. Without
-this opt-in TLS validates certificates, including in development. Production keeps
-its Supabase transaction-pooler/port-6543 requirement and rejects the local override;
+HTTP application Auth origin. It explicitly disables DB TLS for local PostgreSQL. Without
+this opt-in TLS validates certificates, including in development. Production accepts provider-neutral PostgreSQL URLs (including Neon pooled URLs)
+and rejects the local override;
 URL SSL parameters cannot override the driver's TLS settings. Do not place the
 local flag in hosted configuration. Use `dev:local`, not a production local server.
 
@@ -100,4 +109,42 @@ and fixture Auth; they do not replace Docker-backed local acceptance.
 If a local command fails, check Docker Desktop's Linux engine and this project's
 containers. Ports 55320–55329 must be free. Do not bypass health checks. If
 migration hashes mismatch, stop and investigate instead of editing migration
-history or resetting data. Studio manages the local Auth account only.
+history or resetting data. Studio Auth users belong to Supabase only; application accounts live in better_auth.
+
+## Better Auth migration ownership
+
+Better Auth, adapter and CLI are pinned to 1.7.7. Official CLI generation with
+`schemaName: "better_auth"` and `generateId: "uuid"` produced
+`src/server/auth/schema.ts`; Drizzle generated canonical
+`0008_better_auth.sql`. Its final privilege statements revoke inherited browser
+grants without modifying Supabase auth objects. Only repository migrations apply
+DDL; runtime never auto-migrates. Training tables have no FK to Auth or app_user map.
+
+Production needs BETTER_AUTH_SECRET (secure, at least 32 characters),
+BETTER_AUTH_URL (exact HTTPS origin), DATABASE_URL and optionally DATABASE_SSL_CA.
+pg uses verified TLS with rejectUnauthorized=true. The parser accepts and strips
+sslmode=require/verify-full intent before handing the URL to pg, preventing URL
+options from replacing verified TLS. Other query overrides are rejected.
+For Neon, use its pooled host and retain database/user/password. Additional
+CLI-only parameters (such as connect_timeout/channel_binding) are not runtime
+configuration; use the documented pool settings.
+
+AuthIdentityProvider validates the Better Auth database session and exposes only
+the UUID. Login/logout thin routes preserve same-origin guards and no-store
+responses; canonical Better Auth endpoints retain explicit CSRF/origin checks.
+Cookie cache is disabled; production cookies are Secure, HttpOnly, SameSite=Lax.
+
+Fresh real-PostgreSQL verification (requires running Supabase LOCAL):
+
+`REAL_LOCAL_AUTH=true pnpm exec vitest run src/server/auth/integration.test.ts`
+
+On PowerShell set `$env:REAL_LOCAL_AUTH = "true"` first. The test creates a
+random disposable database inside this LOCAL cluster, applies 0000–0008 and
+checks hashes/order, bootstraps Better Auth and finishes a workout, then drops
+only that database. Normal LOCAL data/volumes are never reset.
+
+Re-generate the version-pinned Auth schema only with
+
+pnpm exec auth generate --config scripts/auth-schema.ts --output src/server/auth/schema.ts --yes
+
+Then review Drizzle SQL before applying. Keep namespace privilege revocations; never regenerate applied migrations.

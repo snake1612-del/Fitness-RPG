@@ -10,8 +10,8 @@ const environment = {
   NODE_ENV: "production",
   DATABASE_URL:
     "postgresql://postgres.test:password@aws-0-test.pooler.supabase.com:6543/postgres",
-  SUPABASE_URL: "https://test.supabase.co",
-  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_key",
+  BETTER_AUTH_URL: "https://fitness.test",
+  BETTER_AUTH_SECRET: "test-only-secret-of-at-least-32-characters",
 };
 
 describe("database foundation", () => {
@@ -30,7 +30,7 @@ describe("database foundation", () => {
           NODE_ENV: "development",
           LOCAL_DEV: "true",
           DATABASE_URL: "postgresql://u:p@127.0.0.1:55322/postgres",
-          SUPABASE_URL: "http://127.0.0.1:55321",
+          BETTER_AUTH_URL: "http://localhost:3000",
         }),
       ).ssl,
     ).toBe(false);
