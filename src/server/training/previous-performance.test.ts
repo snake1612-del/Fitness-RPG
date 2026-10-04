@@ -3,6 +3,8 @@ import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 import { planningDatabase } from "@/test/planning-database";
 import { previousPerformanceResponse } from "@/server/http/previous-performance";
+import { createExecutionApplication } from "@/application/training/execution";
+import { createExecutionRepository } from "./execution-repository";
 
 const alice = "00000000-0000-0000-0000-000000000001",
   bob = "00000000-0000-0000-0000-000000000002";
@@ -64,6 +66,38 @@ const finish = (sessionId: string, user = alice) =>
   db.execution.finish(user, sessionId, { timeZone: "Europe/Moscow" });
 const lookup = (sessionId: string, user = alice) =>
   db.previous.forActive(user, sessionId);
+
+it("canonical prior Finish remains eligible when app finished_at exceeds DB ACTIVE started_at", async () => {
+  const p = await source();
+  const historical = await start(p.templateId);
+  const set = await actual(historical.exercises[0].id);
+  // Inject the existing application clock; no timers or waiting for real skew.
+  const appFinish = new Date(historical.startedAt.getTime() + 60_000);
+  const execution = createExecutionApplication(
+    createExecutionRepository(db.database),
+    () => appFinish,
+  );
+  const saved = await execution.finish(alice, historical.id, {
+    timeZone: "Europe/Moscow",
+  });
+  // Start occurs only after the canonical Finish transaction has committed.
+  const current = await start(p.templateId);
+  const dbStart = new Date(appFinish.getTime() - 2_000);
+  // Control only the ACTIVE fixture's timestamp; preserve terminal Finish facts.
+  await db.postgres.query(
+    "UPDATE workout_session SET started_at=$1 WHERE id=$2 AND status='ACTIVE'",
+    [dbStart.toISOString(), current.id],
+  );
+  const active = (await db.workouts.active(alice))!;
+  expect(saved.status).toBe("FINISHED");
+  expect(saved.finishOrder).not.toBeNull();
+  expect(active.status).toBe("ACTIVE");
+  expect(saved.finishedAt!.getTime() - active.startedAt.getTime()).toBe(2_000);
+  expect((await lookup(current.id))[current.exercises[0].id]).toMatchObject({
+    sessionId: historical.id,
+    sets: [{ id: set.id, reps: 8, loadKg: values.loadKg, rir: 2 }],
+  });
+});
 
 it("empty history and current ACTIVE actuals never supply previous", async () => {
   const p = await source();

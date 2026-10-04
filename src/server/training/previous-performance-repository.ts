@@ -40,7 +40,6 @@ export function createPreviousPerformanceRepository(
             FROM workout_session finished
             JOIN session_exercise historical ON historical.session_id = finished.id
             WHERE finished.user_id = ${userId} AND finished.status = 'FINISHED'
-              AND finished.finished_at <= active.started_at
               AND historical.exercise_id = current.exercise_id
               AND historical.deleted_at IS NULL
               AND EXISTS (SELECT 1 FROM workout_set eligible
