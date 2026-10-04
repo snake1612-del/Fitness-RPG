@@ -1,7 +1,6 @@
 allowBuilds:
   esbuild: true
   unrs-resolver: true
-  supabase: true
 minimumReleaseAgeExclude:
   - "@next/env@16.3.8"
   - "@next/eslint-plugin-next@16.3.8"

@@ -65,10 +65,25 @@ it("official Better Auth creates UUID user/session in private namespace", async 
     "select user_id from better_auth.session",
   );
   expect(rows.rows[0].user_id).toBe(id);
-  const access = await db.postgres.query<{ allowed: boolean }>(
-    "select has_schema_privilege('anon','better_auth','USAGE') or has_table_privilege('authenticated','better_auth.account','SELECT') as allowed",
+  if (process.env.REAL_LOCAL_AUTH === "true") {
+    const roles = await db.postgres.query(
+      "select rolname from pg_roles where rolname in ('anon','authenticated','authenticator')",
+    );
+    expect(roles.rows).toHaveLength(0);
+  } else {
+    const access = await db.postgres.query<{ allowed: boolean }>(
+      "select has_schema_privilege('anon','better_auth','USAGE') or has_table_privilege('authenticated','better_auth.account','SELECT') as allowed",
+    );
+    expect(access.rows[0].allowed).toBe(false);
+  }
+  const publicAccess = await db.postgres.query(
+    "select 1 from pg_namespace n cross join lateral aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a where n.nspname='better_auth' and a.grantee=0",
   );
-  expect(access.rows[0].allowed).toBe(false);
+  expect(publicAccess.rows).toHaveLength(0);
+  const publicTables = await db.postgres.query(
+    "select 1 from pg_class t join pg_namespace n on n.oid=t.relnamespace cross join lateral aclexplode(coalesce(t.relacl,acldefault('r',t.relowner))) a where n.nspname='better_auth' and t.relkind='r' and a.grantee=0",
+  );
+  expect(publicTables.rows).toHaveLength(0);
   const fk = await db.postgres.query(
     "select 1 from pg_constraint c join pg_class t on c.conrelid=t.oid join pg_namespace n on t.relnamespace=n.oid where c.contype='f' and n.nspname='public' and c.confrelid='better_auth.\"user\"'::regclass",
   );
