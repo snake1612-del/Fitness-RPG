@@ -7,3 +7,6 @@ test-results/
 .env
 .env.*
 !.env.example
+.local/
+# Retained untracked Supabase Local cache only; old Docker volumes stay untouched.
+supabase/

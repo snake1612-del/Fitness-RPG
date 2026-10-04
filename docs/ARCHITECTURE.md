@@ -3,14 +3,15 @@
 **Status:** Frozen  
 **Scope:** MVP v0.1
 
-## M1 runtime clarification
+## M1/M2 runtime clarification
 
 Application Auth is self-hosted Better Auth inside Next.js. AuthIdentityProvider
 validates a database session and exposes only the UUID. Auth persistence uses
 permanent better_auth.*; Training stays public.*, without Auth FK, mapping or
-ID translation. M1 LOCAL retains Supabase Local PostgreSQL; Supabase auth.* is
-untouched and no longer application authority. Target M2 LOCAL is Docker
-PostgreSQL 17; target hosted DB is Neon PostgreSQL 17 with Vercel unchanged.
+ID translation. M2 LOCAL uses plain Docker PostgreSQL 17, Better Auth and Next.js.
+Supabase is no longer a LOCAL dependency; old local volumes are retained as
+rollback/debug residue. Target hosted DB is Neon PostgreSQL 17 with Vercel unchanged;
+hosted Neon setup has not been implemented.
 Drizzle + pg, verified TLS, small pool and Training transactions remain.
 Canonical 0008 owns Auth DDL; runtime never auto-migrates. Provider references
 below describe the pre-M1 baseline/Pilot, which this PR does not deploy or modify.

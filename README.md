@@ -37,7 +37,7 @@ The repository should not be interpreted as containing a complete or usable Fitn
 - TypeScript
 - Drizzle ORM
 - PostgreSQL
-- PostgreSQL 17 (M1 Supabase Local substrate; target hosted Neon)
+- PostgreSQL 17 (plain Docker LOCAL; target hosted Neon)
 - Self-hosted Better Auth inside Next.js
 - Vercel
 
@@ -73,7 +73,7 @@ Setup and deployment instructions will be added only when they correspond to rep
 
 ## Foundation development setup
 
-For the current Docker Desktop + Supabase Local workflow, see
+For the current Docker Desktop + plain PostgreSQL 17 workflow, see
 [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md).
 LOCAL and the hosted Fitness RPG Pilot are separate environments.
 
