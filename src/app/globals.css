@@ -353,3 +353,18 @@ fieldset {
     transition: background-color 0.15s;
   }
 }
+.previous-performance {
+  margin: 0.75rem 0;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--muted);
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.previous-performance p {
+  margin: 0.25rem 0;
+}
+.previous-performance ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

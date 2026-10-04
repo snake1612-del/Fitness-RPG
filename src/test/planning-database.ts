@@ -10,6 +10,8 @@ import { createExecutionApplication } from "@/application/training/execution";
 import { createExecutionRepository } from "@/server/training/execution-repository";
 import { createCorrectionApplication } from "@/application/training/corrections";
 import { createCorrectionRepository } from "@/server/training/correction-repository";
+import { createPreviousPerformanceApplication } from "@/application/training/previous-performance";
+import { createPreviousPerformanceRepository } from "@/server/training/previous-performance-repository";
 
 export async function planningDatabase() {
   const postgres = await PGlite.create();
@@ -74,6 +76,9 @@ export async function planningDatabase() {
       createCorrectionRepository(database),
     ),
     database,
+    previous: createPreviousPerformanceApplication(
+      createPreviousPerformanceRepository(database),
+    ),
     setQueryHook(hook?: typeof queryHook) {
       queryHook = hook;
     },

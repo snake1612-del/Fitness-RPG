@@ -12,6 +12,8 @@ import { api, ApiError, draftIdentity, type JsonDates } from "./api";
 import { Planning } from "./planning";
 import { SetEditor, loadLabel } from "./set-editor";
 import { CorrectionEditor } from "./correction-editor";
+import { PreviousPerformanceView } from "./previous-performance";
+import type { PreviousPerformances } from "@/domain/training/previous-performance";
 
 export type Screen = "home" | "login" | "setup" | "workout" | "history";
 type Detail = JsonDates<WorkoutDetail>;
@@ -21,6 +23,7 @@ type Data = {
   programs: Program[];
   exercises: Exercise[];
   active: Detail | null;
+  previous: PreviousPerformances | null;
   history: JsonDates<WorkoutSession>[];
   detail: Detail | null;
   next:
@@ -73,11 +76,21 @@ export function Tracker({
           ? api<Data["next"]>("/api/sessions/next")
           : Promise.resolve(null),
       ]);
+    const previous =
+      screen === "workout" && active
+        ? await api<PreviousPerformances>(
+            `/api/sessions/${active.id}/previous-performance`,
+          ).catch((error: unknown) => {
+            if (error instanceof ApiError && error.status === 401) throw error;
+            return null;
+          })
+        : {};
     if (mounted.current)
       setData({
         userId: identity.userId,
         plan,
         active,
+        previous,
         programs,
         exercises,
         history,
@@ -451,6 +464,10 @@ export function Tracker({
                             An exercise with completed sets cannot be skipped.
                           </p>
                         )}
+                      <PreviousPerformanceView
+                        previous={data.previous?.[exercise.id] ?? null}
+                        unavailable={data.previous === null}
+                      />
                       <h3>Actual sets</h3>
                       {exercise.sets.map((set) => (
                         <SetEditor

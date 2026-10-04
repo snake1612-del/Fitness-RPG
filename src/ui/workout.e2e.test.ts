@@ -50,6 +50,9 @@ vi.mock("@/server/training/execution-application", () => ({
 vi.mock("@/server/training/correction-application", () => ({
   getCorrectionApplication: () => db.corrections,
 }));
+vi.mock("@/server/training/previous-performance-application", () => ({
+  getPreviousPerformanceApplication: () => db.previous,
+}));
 vi.mock("@/server/db/runtime", () => ({
   getDatabaseReadinessGateway: () => ({
     check: async () => {
@@ -85,6 +88,7 @@ import * as cancel from "@/app/api/sessions/[id]/cancel/route";
 import * as history from "@/app/api/sessions/route";
 import * as detail from "@/app/api/sessions/[id]/route";
 import * as corrections from "@/app/api/sessions/[id]/correct/route";
+import * as previous from "@/app/api/sessions/[id]/previous-performance/route";
 
 // Only the external Auth identity and HTTP transport are fixtures.
 // Browser renders the real Next production build; handlers/application/SQL/migrations are real.
@@ -95,6 +99,7 @@ let db: Awaited<ReturnType<typeof planningDatabase>>;
 let browser: Browser, context: BrowserContext, page: Page, server: ChildProcess;
 let lostResponse: RegExp | undefined;
 let unavailable = false;
+let previousUnavailable = false;
 let browserErrors: string[] = [];
 type Handler = (
   request: Request,
@@ -127,13 +132,17 @@ const routes: [RegExp, Partial<Record<Method, Handler>>][] = [
   [/^\/api\/sessions\/([^/]+)\/finish$/, finish],
   [/^\/api\/sessions\/([^/]+)\/cancel$/, cancel],
   [/^\/api\/sessions\/([^/]+)\/correct$/, corrections],
+  [/^\/api\/sessions\/([^/]+)\/previous-performance$/, previous],
   [/^\/api\/sessions$/, history],
   [/^\/api\/sessions\/([^/]+)$/, detail],
 ];
 async function transport(route: Route) {
   const incoming = route.request();
   const path = new URL(incoming.url()).pathname;
-  if (unavailable) {
+  if (
+    unavailable ||
+    (previousUnavailable && path.endsWith("/previous-performance"))
+  ) {
     await route.fulfill({
       status: 503,
       json: { error: "service_unavailable" },
@@ -213,6 +222,7 @@ beforeEach(async () => {
   loggedIn = false;
   lostResponse = undefined;
   unavailable = false;
+  previousUnavailable = false;
   browserErrors = [];
   context = await browser.newContext({ viewport: { width: 375, height: 812 } });
   await context.route("**/api/**", transport);
@@ -762,6 +772,129 @@ it("mobile user logs in, prepares all load types, starts, corrects/completes set
   await browserExpect(page).toHaveURL(origin + "/login");
   await page.goto(origin + "/workout");
   await browserExpect(page).toHaveURL(origin + "/login");
+});
+it("Previous Performance shows all working Sets and load semantics, survives Resume, and shares SESSION_ONLY history", async () => {
+  await seed();
+  const p = (await db.app.activeProgram(userId))!;
+  const body = await db.app.createExercise(userId, {
+    name: "Previous BW",
+    loadType: "BODYWEIGHT",
+  });
+  const assist = await db.app.createExercise(userId, {
+    name: "Previous assist",
+    loadType: "ASSISTED_BODYWEIGHT",
+  });
+  const { session: historical } = await db.workouts.start(userId, {
+    templateId: p.templates[0].id,
+  });
+  const bw = await db.execution.addExercise(userId, historical.id, {
+    exerciseId: body.id,
+  });
+  const assisted = await db.execution.addExercise(userId, historical.id, {
+    exerciseId: assist.id,
+  });
+  for (const [entry, loadKg, reps, rir] of [
+    [historical.exercises[0], "80.12500000000000000001", 8, 2],
+    [historical.exercises[0], "79", 7, null],
+    [bw, null, 6, null],
+    [assisted, "20.25", 9, 1],
+  ] as const) {
+    const s = await db.execution.createSet(userId, entry.id, {
+      id: randomUUID(),
+      type: "WORKING",
+      loadKg,
+      reps,
+      rir,
+    });
+    await db.execution.completeSet(userId, s.id);
+  }
+  const warm = await db.execution.createSet(
+    userId,
+    historical.exercises[0].id,
+    { id: randomUUID(), type: "WARM_UP", loadKg: "99", reps: 1 },
+  );
+  await db.execution.completeSet(userId, warm.id);
+  const finished = await db.execution.finish(userId, historical.id, {
+    timeZone: "Europe/Moscow",
+  });
+  await login();
+  await startWorkout();
+  const previous = page.getByRole("complementary", {
+    name: "Previous performance",
+  });
+  await browserExpect(previous).toContainText(
+    "80.12500000000000000001 kg × 8 · RIR 2",
+  );
+  await browserExpect(previous.locator("li")).toHaveText([
+    "80.12500000000000000001 kg × 8 · RIR 2",
+    "79 kg × 7",
+  ]);
+  await browserExpect(previous).toContainText(
+    new Intl.DateTimeFormat("en", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(finished.trainingDay + "T00:00:00Z")),
+  );
+  for (const id of [body.id, assist.id]) {
+    await page
+      .getByLabel("Session-only exercise", { exact: true })
+      .selectOption(id);
+    await page
+      .getByRole("button", { name: "Add exercise", exact: true })
+      .click();
+    await browserExpect(page.locator("section.exercise")).toHaveCount(
+      id === body.id ? 2 : 3,
+    );
+  }
+  await browserExpect(previous.nth(1)).toContainText("BW × 6");
+  await browserExpect(previous.nth(2)).toContainText(
+    "Assist 20.25 kg × 9 · RIR 1",
+  );
+  await page.reload();
+  await browserExpect(previous.nth(0)).toContainText("79 kg × 7");
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.getByRole("link", { name: "Resume Workout", exact: true }).click();
+  await browserExpect(previous.nth(2)).toContainText(
+    "Assist 20.25 kg × 9 · RIR 1",
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/previous-performance-mobile.png",
+    fullPage: true,
+  });
+});
+it("Previous Performance is empty without eligible history and its failure leaves logging usable", async () => {
+  await seed();
+  await login();
+  await startWorkout();
+  await browserExpect(
+    page.getByText("No previous performance", { exact: true }),
+  ).toBeVisible();
+  previousUnavailable = true;
+  await page
+    .getByRole("button", { name: "Refresh saved state", exact: true })
+    .click();
+  await browserExpect(
+    page.getByText("Previous performance unavailable. You can keep logging."),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Add draft set", exact: true })
+    .click();
+  await browserExpect(
+    page.getByRole("article", { name: "Set 1", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("External load (kg)", { exact: true }).fill("25.125");
+  await page.getByLabel("Reps", { exact: true }).fill("8");
+  await page.getByRole("button", { name: "Save values", exact: true }).click();
+  await page.getByRole("button", { name: "Complete", exact: true }).click();
+  await browserExpect(
+    page.getByText("Completed", { exact: true }),
+  ).toBeVisible();
 });
 it("lost create response and reload retain the retry UUID without a second canonical set", async () => {
   await seed();
