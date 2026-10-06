@@ -478,30 +478,48 @@ Domain logic must not be placed directly in React components or Route Handlers.
 
 ---
 
-## A002 — Managed PostgreSQL, Authentication and Runtime DB Boundary
+## A002 — PostgreSQL, Self-hosted Authentication and Runtime DB Boundary
 
 The approved platform is:
 
-- Supabase PostgreSQL;
-- Supabase Auth;
+- PostgreSQL 17 as the canonical database;
+- Neon PostgreSQL for HOSTED;
+- plain Docker PostgreSQL 17 for LOCAL;
+- self-hosted Better Auth inside Next.js;
+- AuthIdentityProvider as the durable application identity boundary;
 - Vercel runtime;
-- Drizzle ORM.
+- Drizzle ORM + pg.
 
 Production runtime database path:
 
 ```text
 Vercel
-→ small application DB pool
-→ SSL
-→ Supabase transaction-mode pooler
-→ PostgreSQL
+→ Next.js application / AuthIdentityProvider
+→ Better Auth
+→ Drizzle / pg small application DB pool
+→ verified TLS
+→ Neon pooled endpoint (transaction mode)
+→ PostgreSQL 17
 ```
 
 Prepared statements must not be used where they are incompatible with transaction pooling.
 
-Direct database connections are reserved for trusted migration, administration and development tooling.
+Hosted migrations use a direct/unpooled connection through trusted local tooling.
+`MIGRATION_DATABASE_URL` is not a runtime variable and is never placed in Vercel.
+Repository Drizzle migrations own schema history; runtime does not auto-migrate.
+
+Better Auth persistence uses permanent `better_auth.*`; Training stays `public.*`.
+Better Auth `user.id` is a UUID used directly for Training ownership, without an
+identity mapping table, ID translation or Training FK into Auth tables.
+
+Production database/Auth secrets are server-only and scoped only to Production.
+Preview and Development do not receive Production database credentials.
 
 The browser does not write Training tables directly.
+
+Hosted Neon Pilot acceptance has passed. This accepted architecture supersedes
+the original Supabase PostgreSQL/Auth choice; the old Supabase Pilot is retained
+as paused rollback/archive infrastructure, not an application dependency.
 
 ---
 

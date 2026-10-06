@@ -2,8 +2,9 @@
 
 LOCAL: Docker Desktop + plain PostgreSQL 17 + self-hosted Better Auth + Next.js.
 Auth persistence is `better_auth.*`; Training is `public.*`. There is no Auth FK,
-identity mapping or Supabase runtime dependency. Hosted Neon + Better Auth + Vercel
-is a future setup step; M2 does not modify or deploy the hosted Pilot.
+identity mapping or Supabase runtime dependency. HOSTED uses Neon PostgreSQL 17 +
+Better Auth + Vercel and has passed live Pilot acceptance. LOCAL data, credentials
+and tooling remain separate from HOSTED; local wrappers never target Neon.
 
 ## First machine setup
 
@@ -48,10 +49,12 @@ An old browser cookie may therefore stop validating despite the unchanged secret
 Bootstrap a new local account. This is expected; existing Training ownership is
 not translated or reassigned.
 
-Old Supabase Local volumes/data are retained as rollback/debug residue. M2 does
-not export/import, reset or delete them. Its old ports differ from 55432, so the
-new workflow does not need to stop them. Repository CLI/config/packages are
-removed; no hosted Supabase action is performed. Untracked old CLI cache is ignored.
+Old Supabase Local volumes/data are retained as historical rollback/debug residue.
+The M2 transition did not export/import, reset or delete them. Their old ports
+differ from 55432, so the current workflow does not need to stop them. Supabase
+CLI/config/packages were removed; untracked old CLI cache is ignored. The old
+hosted Supabase Pilot is separately paused and retained as rollback/archive data.
+No local command operates on that hosted resource.
 
 ## Daily commands
 
@@ -103,6 +106,10 @@ pnpm exec auth generate --config scripts/auth-schema.ts --output src/server/auth
 ```
 
 Keep privilege revocations and never regenerate applied migrations.
+
+HOSTED uses Neon pooled DATABASE_URL; trusted migrations use its direct endpoint
+through MIGRATION_DATABASE_URL outside Vercel. Production credentials must not
+be copied into LOCAL, Preview or Development.
 
 Production configuration remains provider-neutral: exact HTTPS BETTER_AUTH_URL,
 server-only BETTER_AUTH_SECRET, DATABASE_URL and optional DATABASE_SSL_CA.

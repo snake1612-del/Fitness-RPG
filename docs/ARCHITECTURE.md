@@ -3,18 +3,19 @@
 **Status:** Frozen  
 **Scope:** MVP v0.1
 
-## M1/M2 runtime clarification
+## Current runtime baseline
 
 Application Auth is self-hosted Better Auth inside Next.js. AuthIdentityProvider
 validates a database session and exposes only the UUID. Auth persistence uses
 permanent better_auth.*; Training stays public.*, without Auth FK, mapping or
-ID translation. M2 LOCAL uses plain Docker PostgreSQL 17, Better Auth and Next.js.
+ID translation. LOCAL uses plain Docker PostgreSQL 17, Better Auth and Next.js.
 Supabase is no longer a LOCAL dependency; old local volumes are retained as
-rollback/debug residue. Target hosted DB is Neon PostgreSQL 17 with Vercel unchanged;
-hosted Neon setup has not been implemented.
+rollback/debug residue. HOSTED uses Neon PostgreSQL 17 with Vercel unchanged.
+The hosted Neon Pilot has passed real Auth, PostgreSQL and browser acceptance.
 Drizzle + pg, verified TLS, small pool and Training transactions remain.
-Canonical 0008 owns Auth DDL; runtime never auto-migrates. Provider references
-below describe the pre-M1 baseline/Pilot, which this PR does not deploy or modify.
+Canonical migrations 0000–0008 own schema history; 0008 owns Auth DDL.
+Runtime never auto-migrates. The former Supabase backend is superseded and is
+retained only as paused rollback/archive infrastructure, outside the live path.
 
 This document defines the approved implementation architecture.
 
@@ -43,15 +44,24 @@ Next.js / Vercel
  ├─ Progress module
  └─ Gamification module
         ↓
-Drizzle ORM
+Application / AuthIdentityProvider
         ↓
-Supabase PostgreSQL
+Better Auth (self-hosted inside Next.js)
+        ↓
+Drizzle ORM / pg
+        ↓ verified TLS / pooled endpoint
+Neon PostgreSQL 17
 ```
 
-Authentication:
+LOCAL runtime:
 
 ```text
-Supabase Auth
+Browser
+→ Next.js localhost
+→ application / AuthIdentityProvider
+→ Better Auth
+→ Drizzle / pg
+→ plain Docker PostgreSQL 17
 ```
 
 There is no separate backend service in MVP.
@@ -68,13 +78,15 @@ There is no separate backend service in MVP.
 
 ### Persistence
 
-- PostgreSQL
-- Supabase managed PostgreSQL
-- Drizzle ORM
+- PostgreSQL 17
+- Neon PostgreSQL for HOSTED; plain Docker PostgreSQL for LOCAL
+- Drizzle ORM + pg
 
 ### Authentication
 
-- Supabase Auth
+- Self-hosted Better Auth 1.7.7 inside Next.js
+- Permanent `better_auth.*` persistence; UUID user identity
+- AuthIdentityProvider is the durable application identity boundary
 
 ### Runtime / deployment
 
@@ -143,7 +155,9 @@ SessionExercise
 WorkoutSet
 ```
 
-Authentication identity comes from Supabase Auth.
+Authentication identity comes from a validated Better Auth database session
+through AuthIdentityProvider. Better Auth `user.id` is a UUID used directly for
+Training ownership; no mapping table, ID translation or Training → Auth FK exists.
 
 ---
 
@@ -507,15 +521,17 @@ Production path:
 
 ```text
 Vercel runtime
-→ small application DB pool
-→ SSL
-→ Supabase transaction-mode pooler
-→ PostgreSQL
+→ Drizzle / pg small application DB pool
+→ verified TLS
+→ Neon pooled endpoint (transaction mode)
+→ PostgreSQL 17
 ```
 
 The runtime configuration must be compatible with transaction pooling.
 
-Prepared statements must be disabled where the chosen driver/pooler combination makes them incompatible.
+Runtime uses unnamed queries and one pooled connection per warm instance.
+Named prepared statements must not be introduced where incompatible with
+transaction pooling. TLS certificate validation remains enabled.
 
 ---
 
@@ -529,6 +545,16 @@ Direct database connections are for trusted tooling such as:
 
 They are not the normal application runtime path.
 
+Hosted migrations use the direct/unpooled Neon endpoint through trusted local
+tooling and `MIGRATION_DATABASE_URL`. Repository Drizzle history is canonical;
+Better Auth generation tooling may generate schema, but runtime does not apply
+DDL. `MIGRATION_DATABASE_URL` is never configured in Vercel.
+
+Production has server-only `DATABASE_URL`, `BETTER_AUTH_URL` and
+`BETTER_AUTH_SECRET`. Production database credentials are not shared with Preview
+or Development. Public signup is disabled; pilot accounts use trusted server-side
+Better Auth bootstrap. LOCAL_DEV is restricted to loopback development.
+
 ---
 
 ## 26. Browser data-access boundary
@@ -537,7 +563,9 @@ The browser does not directly write Training tables.
 
 Training writes flow through the application server boundary.
 
-Supabase Auth provides authentication but does not change this architecture.
+Better Auth handles login/logout/session inside Next.js. The browser uses
+same-origin HTTP APIs and cookies; it receives no database credentials and has
+no direct database access.
 
 ---
 
