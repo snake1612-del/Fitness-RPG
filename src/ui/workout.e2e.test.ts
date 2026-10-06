@@ -52,6 +52,10 @@ vi.mock("@/server/training/correction-application", () => ({
 vi.mock("@/server/training/previous-performance-application", () => ({
   getPreviousPerformanceApplication: () => db.previous,
 }));
+vi.mock("@/server/training/progress-application", () => ({
+  getProgressApplication: () =>
+    createProgressApplication(createProgressRepository(db.database)),
+}));
 vi.mock("@/server/db/runtime", () => ({
   getDatabaseReadinessGateway: () => ({
     check: async () => {
@@ -60,6 +64,9 @@ vi.mock("@/server/db/runtime", () => ({
   }),
 }));
 import { planningDatabase } from "@/test/planning-database";
+import { createProgressApplication } from "@/application/training/progress";
+import { createProgressRepository } from "@/server/training/progress-repository";
+import * as progress from "@/app/api/progress/route";
 import * as authLogin from "@/app/api/auth/login/route";
 import * as authLogout from "@/app/api/auth/logout/route";
 import * as me from "@/app/api/foundation/me/route";
@@ -106,6 +113,7 @@ type Handler = (
 ) => Response | Promise<Response>;
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 const routes: [RegExp, Partial<Record<Method, Handler>>][] = [
+  [/^\/api\/progress$/, progress],
   [/^\/api\/auth\/login$/, authLogin],
   [/^\/api\/auth\/logout$/, authLogout],
   [/^\/api\/foundation\/me$/, me],
@@ -267,6 +275,144 @@ async function seed() {
     },
   });
 }
+it("Progress overview, all load types, archived selector, correction refresh and reload are read-only", async () => {
+  const definitions = await Promise.all(
+    (["WEIGHTED", "BODYWEIGHT", "ASSISTED_BODYWEIGHT"] as const).map(
+      (loadType) => db.app.createExercise(userId, { name: loadType, loadType }),
+    ),
+  );
+  const plan = await db.app.createProgram(userId, {
+    name: "Progress pilot",
+    initialTemplate: {
+      name: "A",
+      exercises: definitions.map((e) => ({
+        exerciseId: e.id,
+        targetWorkingSets: 2,
+        targetRepsMin: 8,
+        targetRepsMax: 10,
+      })),
+    },
+  });
+  let savedSet = "",
+    savedSession = "";
+  for (let i = 0; i < 2; i++) {
+    const active = (
+      await db.workouts.start(userId, { templateId: plan.templates[0].id })
+    ).session;
+    for (const entry of active.exercises) {
+      const set = await db.execution.createSet(userId, entry.id, {
+        id: randomUUID(),
+        type: "WORKING",
+        loadKg: entry.loadType === "BODYWEIGHT" ? null : "30.05",
+        reps: 6,
+        rir: 2,
+      });
+      await db.execution.completeSet(userId, set.id);
+      if (entry.loadType === "WEIGHTED") {
+        savedSet = set.id;
+        savedSession = active.id;
+      }
+    }
+    await db.execution.finish(userId, active.id, { timeZone: "UTC" });
+  }
+  const zero = (
+    await db.workouts.start(userId, { templateId: plan.templates[0].id })
+  ).session;
+  await db.execution.finish(userId, zero.id, { timeZone: "UTC" });
+  const cancelled = (
+    await db.workouts.start(userId, { templateId: plan.templates[0].id })
+  ).session;
+  await db.execution.cancel(userId, cancelled.id);
+  await db.app.changeExercise(userId, definitions[0].id, { archived: true });
+  await login();
+  await page.getByRole("link", { name: "Progress", exact: true }).click();
+  await browserExpect(
+    page.getByRole("heading", { name: "Training Overview" }),
+  ).toBeVisible();
+  await browserExpect(page.locator("dd")).toHaveText(["3", "3", "3"]);
+  const select = page.getByLabel("Exercise", { exact: true });
+  await select.selectOption(definitions[0].id);
+  await browserExpect(
+    page.getByRole("heading", { name: "Highest Load" }),
+  ).toBeVisible();
+  await browserExpect(page.getByText("36.1 kg", { exact: true })).toBeVisible();
+  await browserExpect(
+    page.getByText("30.05 kg × 6 · RIR 2", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(page.getByText(/Working Volume: 180.3/)).toHaveCount(2);
+  await db.corrections.correct(userId, savedSession, {
+    expected_revision: 0,
+    setEdits: [
+      { id: savedSet, type: "WORKING", loadKg: "40", reps: 6, rir: null },
+    ],
+  });
+  await page.getByRole("button", { name: "Refresh Progress" }).click();
+  await browserExpect(page.getByText("48.0 kg", { exact: true })).toBeVisible();
+  await select.selectOption(definitions[1].id);
+  await browserExpect(
+    page.getByRole("heading", { name: "Max Reps" }),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByText("BW × 6 · RIR 2", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(page.getByText("Working Volume: N/A")).toBeVisible();
+  await select.selectOption(definitions[2].id);
+  await browserExpect(
+    page.getByRole("heading", { name: "Lowest Assistance" }),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByText("Assist 30.05 kg × 6 · RIR 2", { exact: true }).first(),
+  ).toBeVisible();
+  await page.reload();
+  await browserExpect(
+    page.getByRole("heading", { name: "Training Overview" }),
+  ).toBeVisible();
+  expect((await db.execution.history(userId)).length).toBe(3);
+});
+it("Progress empty/ineligible states, fresh no eligible state after correction and service error", async () => {
+  await login();
+  await page.goto(origin + "/progress");
+  await browserExpect(
+    page.getByText("No Finished workouts yet."),
+  ).toBeVisible();
+  await seed();
+  const plan = (await db.app.activeProgram(userId))!;
+  const active = (
+    await db.workouts.start(userId, { templateId: plan.templates[0].id })
+  ).session;
+  const set = await db.execution.createSet(userId, active.exercises[0].id, {
+    id: randomUUID(),
+    type: "WORKING",
+    loadKg: "80",
+    reps: 12,
+  });
+  await db.execution.completeSet(userId, set.id);
+  await db.execution.finish(userId, active.id, { timeZone: "UTC" });
+  await page.getByRole("button", { name: "Refresh Progress" }).click();
+  await page
+    .getByLabel("Exercise", { exact: true })
+    .selectOption(active.exercises[0].exerciseId);
+  await browserExpect(
+    page.getByText("No eligible data", { exact: true }),
+  ).toBeVisible();
+  await db.corrections.correct(userId, active.id, {
+    expected_revision: 0,
+    setDeletions: [set.id],
+  });
+  await page.getByRole("button", { name: "Refresh Progress" }).click();
+  await browserExpect(
+    page.getByText(/No eligible data for this Exercise/),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByText(/No eligible Exercise occurrences/),
+  ).toBeVisible();
+  unavailable = true;
+  await page.getByRole("button", { name: "Refresh Progress" }).click();
+  await browserExpect(page.getByRole("alert")).toBeVisible();
+  await browserExpect(
+    page.getByRole("heading", { name: "Training Overview" }),
+  ).toHaveCount(0);
+});
 async function startWorkout() {
   await page
     .getByRole("button", { name: "Start Workout", exact: true })
@@ -278,6 +424,22 @@ async function startWorkout() {
     page.getByRole("button", { name: "Add draft set" }).first(),
   ).toBeVisible();
 }
+it("Progress missing browser timezone is a controlled error, never fallback counts", async () => {
+  await login();
+  await context.addInitScript(() => {
+    const original = Intl.DateTimeFormat.prototype.resolvedOptions;
+    Intl.DateTimeFormat.prototype.resolvedOptions = function () {
+      return { ...original.call(this), timeZone: "" };
+    };
+  });
+  await page.goto(origin + "/progress");
+  await browserExpect(page.getByRole("main").getByRole("alert")).toHaveText(
+    "Could not determine your timezone. Progress is unavailable.",
+  );
+  await browserExpect(
+    page.getByRole("heading", { name: "Training Overview" }),
+  ).toHaveCount(0);
+});
 it("Finished corrections save local edits atomically, retain drafts, survive reload/login and leave rotation unchanged", async () => {
   const pressDefinition = await db.app.createExercise(userId, {
     name: "Press",
