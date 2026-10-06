@@ -278,7 +278,7 @@ Examples:
 
 - add a completed Working Set;
 - delete a completed Working Set;
-- complete or uncomplete a Set;
+- add a forgotten completed Set (existing drafts stay incomplete; no generic post-Finish Uncomplete);
 - change Working to Warm-up;
 - change Warm-up to Working.
 
