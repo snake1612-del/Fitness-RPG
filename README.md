@@ -26,9 +26,12 @@ The MVP focuses on gym resistance training and tracks performed Sets using load 
 
 The MVP v0.1 product, Training, Gamification and Architecture semantics have completed documentation freeze.
 
-Implementation is now entering a controlled sequence of small reviewable slices.
+The first usable workout, repeatable workout flow, Finished Session corrections
+and Previous Performance are implemented through reviewed slices.
 
-The repository should not be interpreted as containing a complete or usable Fitness RPG product until the relevant implementation slices have actually been completed.
+LOCAL uses plain Docker PostgreSQL 17 with Better Auth and Next.js. The hosted
+Neon Pilot has passed real Auth, PostgreSQL and browser acceptance, including
+cold wake. Progress, PR analytics, XP and Character remain later product work.
 
 ## Chosen stack
 
@@ -36,8 +39,7 @@ The repository should not be interpreted as containing a complete or usable Fitn
 - React
 - TypeScript
 - Drizzle ORM
-- PostgreSQL
-- PostgreSQL 17 (plain Docker LOCAL; target hosted Neon)
+- PostgreSQL 17 (plain Docker LOCAL; Neon HOSTED)
 - Self-hosted Better Auth inside Next.js
 - Vercel
 
@@ -69,7 +71,7 @@ Documentation Freeze v0.1
 
 Implementation should proceed through small vertical slices rather than attempting the full workout loop in one PR.
 
-Setup and deployment instructions will be added only when they correspond to repository functionality that actually exists.
+Current local setup and hosted runtime boundaries are documented below.
 
 ## Foundation development setup
 
@@ -77,7 +79,8 @@ For the current Docker Desktop + plain PostgreSQL 17 workflow, see
 [`docs/LOCAL_DEVELOPMENT.md`](docs/LOCAL_DEVELOPMENT.md).
 LOCAL and the hosted Fitness RPG Pilot are separate environments.
 
-Slice 1 provides a minimal application, server-side identity boundary and database readiness check.
+The application provides a server-side identity boundary and database readiness
+check in addition to Planning, Workout and History UI.
 
 Use Node.js 22.13+ (22.x), 24.x or 26+ and pnpm 11.25.0. Validation was performed with Node.js 24.19.0.
 
@@ -95,11 +98,13 @@ pnpm start
 Copy `.env.example` to an uncommitted environment file for hosted configuration.
 Supply server-only BETTER_AUTH_URL (exact HTTPS origin), BETTER_AUTH_SECRET and
 DATABASE_URL. For LOCAL use the guarded wrappers in docs/LOCAL_DEVELOPMENT.md.
-SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are not application requirements.
+Production requires only these three server environment variables. Keep
+Production credentials out of Preview, Development and LOCAL. Supabase variables
+and its legacy CA are not used by the current hosted runtime.
 
 The provider-neutral pg pool retains one connection per warm instance, unnamed
-queries and verified TLS (rejectUnauthorized=true). Neon pooled PostgreSQL URL
-shape is supported. Safe sslmode=require/verify-full intent is stripped before pg;
+queries and verified TLS (rejectUnauthorized=true), using the Neon pooled
+PostgreSQL endpoint in HOSTED. Safe sslmode=require/verify-full intent is stripped before pg;
 other URL driver overrides are rejected. Optional DATABASE_SSL_CA supplies a trusted
 PEM root (literal backslash-n escapes accepted). LOCAL_DEV alone permits loopback
 plaintext development; it is rejected in production.
@@ -117,17 +122,18 @@ handler with same-origin protection and forwarded cookies. No private Server
 Component response is cached.
 
 Drizzle schema declarations are located in `src/server/db/schema.ts`; the
-configured migration output directory is `drizzle/`. Slice 2 adds only the four
-planning tables and their migrations. Migration tooling uses a separate
-`MIGRATION_DATABASE_URL` for a trusted tooling connection; application runtime
-never reads it. No external migration command has been executed.
+configured migration output directory is `drizzle/`. Canonical migrations
+0000–0008 are applied and verified on LOCAL PostgreSQL and the hosted Neon Pilot.
+Migration tooling uses a separate `MIGRATION_DATABASE_URL` for a trusted direct,
+unpooled connection; application runtime never reads it and it is never added to
+Vercel. Runtime, including Better Auth, never auto-migrates.
 
-Unit tests use adapters and mocks. Live Better Auth and PostgreSQL integration
-must be verified separately with project credentials.
+Unit and browser fixtures use adapters/mocks or PGlite. They complement the
+accepted real LOCAL and hosted Better Auth/PostgreSQL checks, not replace them.
 
 ## Training planning developer workflow
 
-Planning is available through authenticated server APIs. No planning UI is implemented. All payloads use camelCase; ownership comes
+Planning is available through `/setup` and authenticated server APIs. All payloads use camelCase; ownership comes
 from the verified application identity, never from request payloads.
 
 | Method | Endpoint | Capability |
@@ -169,11 +175,11 @@ The migrations in `drizzle/` are applied to an isolated in-memory PGlite
 PostgreSQL engine during `pnpm test`, which exercises the production Drizzle
 repository through a node-postgres-compatible test bridge. This checks schema,
 constraints and persistence without project credentials. It does not verify
-Supabase networking/TLS or concurrent connections across server instances.
+hosted networking/TLS or concurrent connections across server instances.
 
-External migration application remains unverified because database credentials
-are unavailable. Use `MIGRATION_DATABASE_URL` only for a reviewed, trusted
-non-production migration workflow. Planning tables enable RLS and revoke browser
+Hosted migration application and hashes/order have been verified on Neon.
+Use `MIGRATION_DATABASE_URL` only through reviewed, trusted migration tooling.
+Planning tables enable RLS and revoke browser
 role grants; the server DB role must have trusted table privileges and RLS bypass
 (or table ownership). Direct browser table access is intentionally unavailable.
 No built-in catalog seed is included.
@@ -211,8 +217,8 @@ Migrations `0002_workout_snapshot.sql` and `0003_workout_snapshot_integrity.sql`
 add only the two snapshot tables and their integrity rules. They enable RLS and
 revoke browser role access, including execution of the new SQL helpers. The
 isolated PGlite tests cover snapshots, retry/race recovery, rollback and historical
-independence. Independent PostgreSQL connections and live Supabase services
-still require separate verification with non-production credentials.
+independence. Real LOCAL PostgreSQL tests cover independent-connection behavior;
+the hosted Neon Pilot separately verifies the deployed Auth/database path.
 
 ## Workout execution and lifecycle developer workflow
 
@@ -262,7 +268,9 @@ and cannot convert a Finished Session. Finish cannot convert a Cancelled Session
 Resume now includes non-deleted actual Sets ordered inside each snapshot entry.
 History uses only saved snapshot/Set facts. Its list returns Session headers;
 detail returns the full aggregate. Cancelled/ACTIVE Sessions are excluded from
-completed History (detail returns 404). No rotation, Progress or XP is calculated.
+completed History (detail returns 404). History supplies the Finished facts used
+by the implemented rotation and Previous Performance; Progress analytics and XP
+remain outside the current implementation.
 
 Migrations `0004_workout_execution.sql` and
 `0005_workout_execution_integrity.sql` add Set/lifecycle fields, the Finish order
@@ -272,13 +280,14 @@ needs sequence USAGE as well as table privileges/RLS bypass (or ownership).
 Existing migration files
 and frozen specifications are unchanged. PGlite tests cover these migrations and
 production repositories, including route-handler composition, rollback and
-snapshot-independent History. Live Supabase/PostgreSQL and independent connection
-concurrency remain separate Milestone A acceptance checks.
+snapshot-independent History. Real LOCAL independent-connection checks and
+hosted Neon browser/runtime acceptance complement these fixture tests.
 
 ## First usable workout UI / pilot (PR #4B)
 
-The mobile UI uses the existing Planning and Workout APIs. No schema, migration,
-Training rule, rotation, Progress or Gamification change is included.
+The mobile UI uses the Planning and Workout APIs. Later reviewed slices add
+history-derived rotation, session-only Exercises, Skip/Undo, Finished corrections
+and Previous Performance. Progress analytics and Gamification are not implemented.
 
 - `/login`: email/password login for an existing Better Auth account.
   `POST /api/auth/login` and `POST /api/auth/logout` use the Better Auth HTTP handler and forward cookies; credentials remain outside URLs. Auth actions require the
@@ -287,7 +296,7 @@ Training rule, rotation, Progress or Gamification change is included.
 - `/setup`: create custom exercises, create a Program with its first Template,
   activate a Program, add Templates and add Exercises with planned targets.
   The backend activates the first Program. Later Programs require activation.
-- `/`: select a Template from the Active Program and Start, or Resume the
+- `/`: Start the derived Next Template from the Active Program, or Resume the
   existing saved ACTIVE Session.
 - `/workout`: snapshot targets are separated from actual Sets. Add a draft,
   enter exact kg strings/reps/optional RIR, save values, then Complete explicitly.
@@ -334,17 +343,22 @@ select an installed browser (for example `msedge`) instead of downloaded Chromiu
 
 ### Live pilot gate
 
-**Live acceptance: NOT PERFORMED.** No non-production Supabase/PostgreSQL
-credentials or deployed pilot environment were available during this change.
-Milestone A retains an external acceptance gate.
+**Hosted Neon Pilot acceptance: PASSED.** The live chain is Browser → Vercel /
+Next.js → self-hosted Better Auth → Drizzle / pg → Neon pooled PostgreSQL 17.
+Canonical migrations 0000–0008 and their hashes/order were verified. Acceptance
+covered login/session recovery, exact decimal Set persistence, ACTIVE reload /
+Resume, partial Finish, History, Cancel/rotation, session-only Exercises,
+Skip/Undo, Previous Performance, Finished corrections and genuine cold wake.
+The old Supabase Pilot is paused and retained only for rollback/archive purposes.
 
-Before accepting Milestone A, configure the existing server environment
+For a fresh hosted environment, configure the existing server environment
 (`BETTER_AUTH_URL`, server-only `BETTER_AUTH_SECRET`, pooled `DATABASE_URL`,
 and TLS CA where needed), apply migrations with trusted tooling, and provision a
-confirmed email/password pilot account. Registration/password recovery UI is
+pilot account through the trusted server-side Better Auth API. Public signup
+remains disabled; registration/password recovery UI is
 outside this minimal pilot flow.
 
-On the non-production HTTPS deployment, run:
+For future hosted regression checks on the non-production HTTPS deployment, run:
 login → create exercise/Program/Template/targets → Start → save and Complete Set
 → Finish → reload → open History. Also reload an ACTIVE workout and Resume,
 then verify Cancel is excluded from completed History. Confirm the runtime
