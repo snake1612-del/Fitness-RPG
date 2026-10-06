@@ -266,7 +266,7 @@ fieldset {
   transform: translateX(-50%);
   width: min(100%, 760px);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: #101721f5;
   border-top: 1px solid #354152;
   padding: 10px 8px max(12px, env(safe-area-inset-bottom));

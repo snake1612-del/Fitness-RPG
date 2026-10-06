@@ -31,7 +31,9 @@ and Previous Performance are implemented through reviewed slices.
 
 LOCAL uses plain Docker PostgreSQL 17 with Better Auth and Next.js. The hosted
 Neon Pilot has passed real Auth, PostgreSQL and browser acceptance, including
-cold wake. Progress, PR analytics, XP and Character remain later product work.
+cold wake. Progress Foundation is implemented for independent review and LOCAL
+acceptance; hosted Progress acceptance follows review/merge. XP and Character
+remain later product work.
 
 ## Chosen stack
 
@@ -269,8 +271,8 @@ Resume now includes non-deleted actual Sets ordered inside each snapshot entry.
 History uses only saved snapshot/Set facts. Its list returns Session headers;
 detail returns the full aggregate. Cancelled/ACTIVE Sessions are excluded from
 completed History (detail returns 404). History supplies the Finished facts used
-by the implemented rotation and Previous Performance; Progress analytics and XP
-remain outside the current implementation.
+by rotation, Previous Performance and derived Progress Foundation. XP remains
+outside the current implementation.
 
 Migrations `0004_workout_execution.sql` and
 `0005_workout_execution_integrity.sql` add Set/lifecycle fields, the Finish order
@@ -287,7 +289,8 @@ hosted Neon browser/runtime acceptance complement these fixture tests.
 
 The mobile UI uses the Planning and Workout APIs. Later reviewed slices add
 history-derived rotation, session-only Exercises, Skip/Undo, Finished corrections
-and Previous Performance. Progress analytics and Gamification are not implemented.
+and Previous Performance. Progress Foundation adds a read-only `/progress` screen;
+Gamification remains outside the current implementation.
 
 - `/login`: email/password login for an existing Better Auth account.
   `POST /api/auth/login` and `POST /api/auth/logout` use the Better Auth HTTP handler and forward cookies; credentials remain outside URLs. Auth actions require the
@@ -366,3 +369,36 @@ actually uses the configured pooled PostgreSQL endpoint. Record live
 evidence separately; automated fixtures cannot mark this gate as passed.
 
 ---
+
+## Progress Foundation developer workflow
+
+`/progress` reads corrected canonical FINISHED history through authenticated
+`GET /api/progress?timeZone=<IANA zone>&exerciseId=<optional UUID>`.
+Identity is server-derived; foreign/no eligible Exercise data returns an empty
+selection. Every response is `no-store`. There is no Progress ledger, migration,
+cache or direct browser DB access; canonical migrations remain 0000–0008.
+
+Overview counts all Finished Sessions, including zero-set workouts. Effective
+today is the server instant's calendar date in the current browser IANA timezone.
+Last 7/30 include today and the previous 6/29 calendar date labels. Missing or
+unsupported zones produce validation errors, never a UTC/server-local fallback.
+Historical `training_day` remains immutable, including after travel/corrections.
+
+Exercise Progress uses stable Exercise IDs across PLANNED/SESSION_ONLY history;
+archived historical definitions remain selectable. Only live completed WORKING
+Sets in non-deleted Finished occurrences qualify. Ordering is original Finish
+order, then deterministic Exercise/Set position; training day is calendar metadata.
+Records retain the earliest historical achiever on ties. Latest shows every eligible Set and
+Recent Trend selects the latest eight eligible occurrences.
+
+WEIGHTED shows Highest Load, Best Epley e1RM, exact Working Volume and max reps
+at exact loads present in Latest. e1RM uses reps 1–10, exact integer/rational
+arithmetic and half-up rounding/comparison to 0.1 kg. BODYWEIGHT shows Max Reps;
+ASSISTED shows Lowest Assistance (lower is better). Volume is N/A for both.
+Corrections recompute the projection on the next read; editing remains in History.
+
+Focused tests cover calendar/decimal boundaries, eligibility, ties, corrections,
+SESSION_ONLY reassignment/deletion, last eight and ownership. `REAL_LOCAL_AUTH=true`
+runs the same relational cases against isolated plain PostgreSQL 17 databases,
+alongside real Better Auth integration. Hosted acceptance of this feature follows
+independent review and merge; this PR does not deploy or change hosted resources.

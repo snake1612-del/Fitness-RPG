@@ -14,8 +14,10 @@ import { SetEditor, loadLabel } from "./set-editor";
 import { CorrectionEditor } from "./correction-editor";
 import { PreviousPerformanceView } from "./previous-performance";
 import type { PreviousPerformances } from "@/domain/training/previous-performance";
+import { ProgressScreen } from "./progress";
 
-export type Screen = "home" | "login" | "setup" | "workout" | "history";
+export type Screen =
+  "home" | "login" | "setup" | "workout" | "history" | "progress";
 type Detail = JsonDates<WorkoutDetail>;
 type Data = {
   userId: string;
@@ -58,8 +60,12 @@ export function Tracker({
     }
     const [plan, active, programs, exercises, history, detail, next] =
       await Promise.all([
-        api<ProgramPlan | null>("/api/programs/active"),
-        api<Detail | null>("/api/sessions/active"),
+        screen === "progress"
+          ? Promise.resolve(null)
+          : api<ProgramPlan | null>("/api/programs/active"),
+        screen === "progress"
+          ? Promise.resolve(null)
+          : api<Detail | null>("/api/sessions/active"),
         screen === "setup"
           ? api<Program[]>("/api/programs")
           : Promise.resolve([]),
@@ -315,20 +321,22 @@ export function Tracker({
           </section>
         ) : (
           <>
-            <div className="page-tools">
-              <button
-                className="quiet"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    await load();
-                    setNotice("Saved state refreshed.");
-                  })
-                }
-              >
-                Refresh saved state
-              </button>
-            </div>
+            {screen !== "progress" && (
+              <div className="page-tools">
+                <button
+                  className="quiet"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await load();
+                      setNotice("Saved state refreshed.");
+                    })
+                  }
+                >
+                  Refresh saved state
+                </button>
+              </div>
+            )}
             {screen === "home" && (
               <>
                 <p className="eyebrow">READY WHEN YOU ARE</p>
@@ -657,6 +665,7 @@ export function Tracker({
               ))}
           </>
         )}
+        {data && screen === "progress" && <ProgressScreen />}
       </main>
       {data && (
         <nav className="bottom-nav" aria-label="Main navigation">
@@ -680,6 +689,12 @@ export function Tracker({
             aria-current={screen === "history" ? "page" : undefined}
           >
             History
+          </Link>
+          <Link
+            href="/progress"
+            aria-current={screen === "progress" ? "page" : undefined}
+          >
+            Progress
           </Link>
         </nav>
       )}
