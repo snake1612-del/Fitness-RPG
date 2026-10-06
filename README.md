@@ -31,9 +31,9 @@ and Previous Performance are implemented through reviewed slices.
 
 LOCAL uses plain Docker PostgreSQL 17 with Better Auth and Next.js. The hosted
 Neon Pilot has passed real Auth, PostgreSQL and browser acceptance, including
-cold wake. Progress Foundation is implemented for independent review and LOCAL
-acceptance; hosted Progress acceptance follows review/merge. XP and Character
-remain later product work.
+cold wake. Progress Foundation has passed independent review, LOCAL and hosted
+acceptance. XP & Level Foundation has passed LOCAL acceptance and is ready for
+independent review; Character remains later work.
 
 ## Chosen stack
 
@@ -271,8 +271,8 @@ Resume now includes non-deleted actual Sets ordered inside each snapshot entry.
 History uses only saved snapshot/Set facts. Its list returns Session headers;
 detail returns the full aggregate. Cancelled/ACTIVE Sessions are excluded from
 completed History (detail returns 404). History supplies the Finished facts used
-by rotation, Previous Performance and derived Progress Foundation. XP remains
-outside the current implementation.
+by rotation, Previous Performance, derived Progress Foundation and XP & Level
+Foundation. Character UI remains outside the current implementation.
 
 Migrations `0004_workout_execution.sql` and
 `0005_workout_execution_integrity.sql` add Set/lifecycle fields, the Finish order
@@ -290,7 +290,8 @@ hosted Neon browser/runtime acceptance complement these fixture tests.
 The mobile UI uses the Planning and Workout APIs. Later reviewed slices add
 history-derived rotation, session-only Exercises, Skip/Undo, Finished corrections
 and Previous Performance. Progress Foundation adds a read-only `/progress` screen;
-Gamification remains outside the current implementation.
+XP & Level Foundation provides a derived read API; Character UI remains outside
+the current implementation.
 
 - `/login`: email/password login for an existing Better Auth account.
   `POST /api/auth/login` and `POST /api/auth/logout` use the Better Auth HTTP handler and forward cookies; credentials remain outside URLs. Auth actions require the
@@ -402,3 +403,27 @@ SESSION_ONLY reassignment/deletion, last eight and ownership. `REAL_LOCAL_AUTH=t
 runs the same relational cases against isolated plain PostgreSQL 17 databases,
 alongside real Better Auth integration. Hosted acceptance of this feature follows
 independent review and merge; this PR does not deploy or change hosted resources.
+
+## XP & Level Foundation developer workflow
+
+Authenticated `GET /api/gamification` returns fresh/no-store `totalXp`, `level`,
+`xpIntoLevel`, `xpForNextLevel` and `xpRemaining`. It consumes current corrected
+FINISHED history without a timezone request, ledger, mutable counters or cache.
+One grouped canonical read uses immutable Session `planned_working_set_quota`
+for P and counts live completed WORKING Sets for W, including extra/SESSION_ONLY
+work but excluding drafts, warm-ups and tombstones/deleted occurrences. P is
+never reconstructed from current Planning or multiplied by actual Set joins.
+
+C = min(W, P). P/C below two yields zero XP; otherwise 100*C/P is rounded to
+multiples of five with exact integer-rational half-up arithmetic. Award allocation
+uses saved training_day groups and original finish_order, with 100 XP/day cap.
+Corrections recompute all same-day allocations on the next read; performance-only
+edits remain neutral. Total XP and Level can decrease after canonical corrections.
+Level requirements grow from 100 by 25 to a 500 cap, with no maximum Level.
+
+Domain/internal application results include per-Session P/W/C/candidate/award
+for tests; public API exposes only the bounded summary. Ownership comes from
+Better Auth via AuthIdentityProvider. There is no Gamification UI, migration 0009
+or new dependency; canonical migrations remain 0000–0008. Focused cases also run
+on real LOCAL PostgreSQL with `REAL_LOCAL_AUTH=true`. Hosted XP acceptance follows
+independent review and merge. Finished corrections do not add generic Uncomplete.
