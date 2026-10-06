@@ -86,19 +86,24 @@ it.each(["WEIGHTED", "BODYWEIGHT", "ASSISTED_BODYWEIGHT"] as const)(
   "%s ties preserve earliest achiever and later secondary reps do not replace source",
   (type) => {
     const data = projectExercise([
-      occurrence(2, "80", 9, type),
-      occurrence(1, "80", 8, type),
+      occurrence(11, "80", type === "BODYWEIGHT" ? 8 : 9, type, "2026-10-06"),
+      occurrence(10, "80", 8, type, "2026-10-07"),
     ])!;
     const record =
       type === "WEIGHTED"
         ? data.highestLoad
         : type === "BODYWEIGHT"
           ? projectExercise([
-              occurrence(2, "80", 8, type),
-              occurrence(1, "80", 8, type),
+              occurrence(11, "80", 8, type, "2026-10-06"),
+              occurrence(10, "80", 8, type, "2026-10-07"),
             ])!.maxReps
           : data.lowestAssistance;
-    expect(record!.source.sessionId).toBe("s1");
+    expect(record!.source.sessionId).toBe("s10");
+    expect(data.latest.sessionId).toBe("s11");
+    expect(data.recent.map((r) => r.occurrence.sessionId)).toEqual([
+      "s11",
+      "s10",
+    ]);
     if (type === "WEIGHTED")
       expect(data.latestRepsAtLoad).toEqual([{ loadKg: "80", maxReps: 9 }]);
     else expect(data.recent[0].volume).toBeNull();
@@ -106,9 +111,11 @@ it.each(["WEIGHTED", "BODYWEIGHT", "ASSISTED_BODYWEIGHT"] as const)(
 );
 it("equal rounded e1RM retains earliest source despite different exact result", () => {
   expect(
-    projectExercise([occurrence(1, "1.01", 1), occurrence(2, "1.04", 1)])!
-      .bestE1rm!.source.sessionId,
-  ).toBe("s1");
+    projectExercise([
+      occurrence(11, "1.04", 1, "WEIGHTED", "2026-10-06"),
+      occurrence(10, "1.01", 1, "WEIGHTED", "2026-10-07"),
+    ])!.bestE1rm!.source.sessionId,
+  ).toBe("s10");
 });
 it("no e1RM for >10 reps is null; latest contains all Sets", () => {
   const row = occurrence(1, "80", 11);
@@ -118,18 +125,18 @@ it("no e1RM for >10 reps is null; latest contains all Sets", () => {
   expect(data.recent[0].bestE1rm).toBeNull();
   expect(data.latest.sets).toHaveLength(2);
 });
-it("last eight use training day then immutable Finish order; input/correction order is irrelevant", () => {
+it("last eight use immutable Finish order despite non-monotonic training days and input/correction order", () => {
   const rows = Array.from({ length: 10 }, (_, i) =>
     occurrence(
       i + 1,
       "80",
       8,
       "WEIGHTED",
-      `2026-10-${String(i + 1).padStart(2, "0")}`,
+      i % 2 === 0 ? "2026-10-07" : "2026-10-06",
     ),
   );
-  rows[0].finishOrder = "100";
   const data = projectExercise([...rows].reverse())!;
+  expect(data.latest.sessionId).toBe("s10");
   expect(data.recent.map((x) => x.occurrence.sessionId)).toEqual([
     "s10",
     "s9",
@@ -141,6 +148,16 @@ it("last eight use training day then immutable Finish order; input/correction or
     "s3",
   ]);
   expect(projectExercise([])).toBeNull();
+});
+it("within a Session, Exercise position breaks Finish order ties, not training day", () => {
+  const first = occurrence(10, "80", 8, "WEIGHTED", "2026-10-07");
+  const second = { ...first, sessionExerciseId: "second", position: 1 };
+  const data = projectExercise([second, first])!;
+  expect(data.latest.sessionExerciseId).toBe("second");
+  expect(data.recent.map((r) => r.occurrence.position)).toEqual([1, 0]);
+  expect(data.highestLoad!.source.sessionExerciseId).toBe(
+    first.sessionExerciseId,
+  );
 });
 it("assisted representative uses minimum then highest reps, without combined PR score", () => {
   const row = occurrence(1, "20", 8, "ASSISTED_BODYWEIGHT");

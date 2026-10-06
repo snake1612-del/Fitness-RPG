@@ -43,7 +43,7 @@ export function createProgressRepository(
         JOIN workout_set ws ON ws.session_exercise_id = se.id
         WHERE ${eligible} AND se.exercise_id = ${exerciseId}
           AND ws.deleted_at IS NULL AND ws.completed_at IS NOT NULL AND ws.type = 'WORKING'
-        GROUP BY s.id, se.id ORDER BY s.training_day, s.finish_order, se.position`)
+        GROUP BY s.id, se.id ORDER BY s.finish_order, se.position`)
               ).rows;
         return {
           overview: overview.rows[0],

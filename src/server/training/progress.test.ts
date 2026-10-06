@@ -144,11 +144,23 @@ for (const real of [
       },
     );
     it.each(["WEIGHTED", "BODYWEIGHT", "ASSISTED_BODYWEIGHT"] as const)(
-      "%s ties/Latest/all completed Working Sets/archived selector",
+      "%s inverted training days preserve SQL Finish order, Latest and earliest PR ties",
       async (type) => {
         const p = await plan(type);
-        const old = await session(p, "2026-10-01", "20", 8);
-        const latest = await session(p, "2026-10-02", "20", 8);
+        const old = await session(p, "2026-10-07", "20", 8);
+        const latest = await session(p, "2026-10-06", "20", 8);
+        const raw = await createProgressRepository(db.database).read(
+          alice,
+          { today: "2026-10-07", from7: "2026-10-01", from30: "2026-09-08" },
+          p.exercise.id,
+        );
+        expect(raw.occurrences.map((r) => r.sessionId)).toEqual([
+          old.session.id,
+          latest.session.id,
+        ]);
+        expect(BigInt(raw.occurrences[0].finishOrder)).toBeLessThan(
+          BigInt(raw.occurrences[1].finishOrder),
+        );
         await corrections().correct(alice, latest.session.id, {
           expected_revision: 0,
           setAdditions: [
@@ -170,6 +182,11 @@ for (const real of [
           archived: true,
         });
         expect(selected.latest.sets).toHaveLength(2);
+        expect(selected.latest.sessionId).toBe(latest.session.id);
+        expect(selected.recent.map((r) => r.occurrence.sessionId)).toEqual([
+          latest.session.id,
+          old.session.id,
+        ]);
         const record =
           type === "WEIGHTED"
             ? selected.highestLoad
@@ -273,13 +290,21 @@ for (const real of [
         rows.push(
           await session(
             p,
-            `2026-09-${String(i).padStart(2, "0")}`,
+            i % 2 === 0 ? "2026-10-06" : "2026-10-07",
             "20",
             8,
             i === 2 ? "warmup" : "working",
           ),
         );
       let latest = (await read(p.exercise.id)).selected!;
+      const raw = await createProgressRepository(db.database).read(
+        alice,
+        { today: "2026-10-07", from7: "2026-10-01", from30: "2026-09-08" },
+        p.exercise.id,
+      );
+      expect(raw.occurrences.map((r) => r.sessionId)).toEqual(
+        rows.filter((_, i) => i !== 1).map((r) => r.session.id),
+      );
       expect(latest.recent.map((r) => r.occurrence.sessionId)).toEqual(
         rows
           .slice(2)

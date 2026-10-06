@@ -124,14 +124,12 @@ export function workingVolume(sets: ProgressSet[]): string {
 }
 export function projectExercise(input: Occurrence[]): ExerciseProgress | null {
   if (!input.length) return null;
-  const history = [...input].sort(
-    (a, b) =>
-      a.trainingDay.localeCompare(b.trainingDay) ||
-      (BigInt(a.finishOrder) < BigInt(b.finishOrder)
-        ? -1
-        : BigInt(a.finishOrder) > BigInt(b.finishOrder)
-          ? 1
-          : a.position - b.position),
+  const history = [...input].sort((a, b) =>
+    BigInt(a.finishOrder) < BigInt(b.finishOrder)
+      ? -1
+      : BigInt(a.finishOrder) > BigInt(b.finishOrder)
+        ? 1
+        : a.position - b.position,
   );
   let highestLoad: ProgressRecord | null = null,
     bestE1rm: ProgressRecord | null = null,

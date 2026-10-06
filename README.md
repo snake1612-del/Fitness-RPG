@@ -386,9 +386,9 @@ Historical `training_day` remains immutable, including after travel/corrections.
 
 Exercise Progress uses stable Exercise IDs across PLANNED/SESSION_ONLY history;
 archived historical definitions remain selectable. Only live completed WORKING
-Sets in non-deleted Finished occurrences qualify. Ordering is saved training day,
-original Finish order, then deterministic Exercise/Set position. Records retain
-the earliest historical achiever on ties. Latest shows every eligible Set and
+Sets in non-deleted Finished occurrences qualify. Ordering is original Finish
+order, then deterministic Exercise/Set position; training day is calendar metadata.
+Records retain the earliest historical achiever on ties. Latest shows every eligible Set and
 Recent Trend selects the latest eight eligible occurrences.
 
 WEIGHTED shows Highest Load, Best Epley e1RM, exact Working Volume and max reps
