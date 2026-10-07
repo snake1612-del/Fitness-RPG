@@ -16,6 +16,7 @@ import { PreviousPerformanceView } from "./previous-performance";
 import type { PreviousPerformances } from "@/domain/training/previous-performance";
 import { ProgressScreen } from "./progress";
 import { CharacterScreen } from "./character";
+import { BottomNavigation, ProfileLink } from "./navigation";
 
 export type Screen =
   "home" | "login" | "setup" | "workout" | "history" | "progress" | "character";
@@ -222,21 +223,25 @@ export function Tracker({
         <Link href="/" className="brand">
           FITNESS <span>RPG</span>
         </Link>
-        {data && (
-          <button
-            className="quiet"
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                await api("/api/auth/logout", "POST");
-                sessionStorage.clear();
-                setData(null);
-                router.replace("/login");
-              })
-            }
-          >
-            Log out
-          </button>
+        {data && screen === "home" ? (
+          <ProfileLink />
+        ) : (
+          data && (
+            <button
+              className="quiet"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  await api("/api/auth/logout", "POST");
+                  sessionStorage.clear();
+                  setData(null);
+                  router.replace("/login");
+                })
+              }
+            >
+              Log out
+            </button>
+          )
         )}
       </header>
       <main id="main">
@@ -669,43 +674,7 @@ export function Tracker({
         {data && screen === "progress" && <ProgressScreen />}
         {data && screen === "character" && <CharacterScreen />}
       </main>
-      {data && (
-        <nav className="bottom-nav" aria-label="Main navigation">
-          <Link href="/" aria-current={screen === "home" ? "page" : undefined}>
-            Home
-          </Link>
-          <Link
-            href="/setup"
-            aria-current={screen === "setup" ? "page" : undefined}
-          >
-            Program
-          </Link>
-          <Link
-            href="/workout"
-            aria-current={screen === "workout" ? "page" : undefined}
-          >
-            Workout
-          </Link>
-          <Link
-            href="/history"
-            aria-current={screen === "history" ? "page" : undefined}
-          >
-            History
-          </Link>
-          <Link
-            href="/progress"
-            aria-current={screen === "progress" ? "page" : undefined}
-          >
-            Progress
-          </Link>
-          <Link
-            href="/character"
-            aria-current={screen === "character" ? "page" : undefined}
-          >
-            Character
-          </Link>
-        </nav>
-      )}
+      {data && <BottomNavigation screen={screen} />}
     </div>
   );
 }

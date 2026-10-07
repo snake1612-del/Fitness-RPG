@@ -25,6 +25,12 @@ vi.mock("@/server/auth/better-auth", () => ({
   }),
   getAuth: () => ({
     handler: async (req: Request) => {
+      if (new URL(req.url).pathname.endsWith("get-session"))
+        return Response.json(
+          loggedIn
+            ? { user: { id: userId, email: "pilot@example.test" } }
+            : null,
+        );
       if (new URL(req.url).pathname.endsWith("sign-out")) {
         loggedIn = false;
         return new Response(null);
@@ -76,6 +82,7 @@ import { createExecutionApplication } from "@/application/training/execution";
 import { createExecutionRepository } from "@/server/training/execution-repository";
 import * as gamification from "@/app/api/gamification/route";
 import * as progress from "@/app/api/progress/route";
+import * as authSession from "@/app/api/auth/[...all]/route";
 import * as authLogin from "@/app/api/auth/login/route";
 import * as authLogout from "@/app/api/auth/logout/route";
 import * as me from "@/app/api/foundation/me/route";
@@ -124,6 +131,7 @@ type Method = "GET" | "POST" | "PATCH" | "DELETE";
 const routes: [RegExp, Partial<Record<Method, Handler>>][] = [
   [/^\/api\/gamification$/, gamification],
   [/^\/api\/progress$/, progress],
+  [/^\/api\/auth\/get-session$/, authSession],
   [/^\/api\/auth\/login$/, authLogin],
   [/^\/api\/auth\/logout$/, authLogout],
   [/^\/api\/foundation\/me$/, me],
@@ -1464,4 +1472,179 @@ it("repeatable mobile flow: planning edits/order, Next, session-only logging, Sk
   expect(
     (await db.app.activeProgram(userId))?.templates[0].exercises,
   ).toHaveLength(1);
+});
+
+it("Profile loads session identity from Home, stays out of bottom navigation and signs out", async () => {
+  await login();
+  await browserExpect(
+    page
+      .getByRole("navigation")
+      .getByRole("link", { name: "Profile", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Profile", exact: true }).click();
+  await browserExpect(page).toHaveURL(origin + "/profile");
+  await browserExpect(
+    page.getByRole("heading", { name: "Profile", exact: true }),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(page.locator(".account-name")).toHaveCount(0);
+  await browserExpect(
+    page
+      .getByRole("navigation")
+      .getByRole("link", { name: "Profile", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await browserExpect(page).toHaveURL(origin + "/login");
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toHaveCount(0);
+  await page.goto(origin + "/profile");
+  await browserExpect(page).toHaveURL(origin + "/login");
+});
+
+it("Profile loading has no fake identity; failed account read supports Retry", async () => {
+  await login();
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await context.route("**/api/auth/get-session?**", async (route) => {
+    await waiting;
+    await route.fulfill({ status: 503, json: { error: "unavailable" } });
+  });
+  await page.goto(origin + "/profile");
+  await browserExpect(
+    page.getByRole("status", { name: "Loading account" }),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toHaveCount(0);
+  await browserExpect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toHaveCount(0);
+  release();
+  await browserExpect(page.locator("main").getByRole("alert")).toContainText(
+    "Could not load your account",
+  );
+  await context.unroute("**/api/auth/get-session?**");
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+});
+
+it("Profile failed sign out stays on Profile and prevents duplicate pending requests", async () => {
+  await login();
+  await page.goto(origin + "/profile");
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+  let calls = 0,
+    release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await context.route("**/api/auth/logout", async (route) => {
+    calls++;
+    await waiting;
+    await route.fulfill({ status: 503, json: { error: "unavailable" } });
+  });
+  await page
+    .getByRole("button", { name: "Sign out", exact: true })
+    .evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+  await browserExpect(
+    page.getByRole("button", { name: "Signing out…", exact: true }),
+  ).toBeDisabled();
+  await browserExpect.poll(() => calls).toBe(1);
+  release();
+  await browserExpect(page.locator("main").getByRole("alert")).toContainText(
+    "Could not sign out",
+  );
+  await browserExpect(page).toHaveURL(origin + "/profile");
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toBeEnabled();
+  await context.unroute("**/api/auth/logout");
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await browserExpect(page).toHaveURL(origin + "/login");
+});
+
+it.each(["lost", "invalid"])(
+  "Profile revalidates a revoked session after a %s logout response",
+  async (failure) => {
+    await login();
+    await page.goto(origin + "/profile");
+    await browserExpect(
+      page.getByText("pilot@example.test", { exact: true }),
+    ).toBeVisible();
+    await context.route("**/api/auth/logout", async (route) => {
+      const incoming = route.request();
+      const response = await authLogout.POST(
+        new Request(incoming.url(), {
+          method: "POST",
+          headers: incoming.headers(),
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect(loggedIn).toBe(false);
+      if (failure === "lost") await route.abort("failed");
+      else await route.fulfill({ status: 200, body: "not valid JSON" });
+    });
+    let sessionReads = 0;
+    await context.route("**/api/auth/get-session?**", async (route) => {
+      sessionReads++;
+      await transport(route);
+    });
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await browserExpect(page).toHaveURL(origin + "/login");
+    expect(sessionReads).toBe(1);
+    await browserExpect(
+      page.getByText("pilot@example.test", { exact: true }),
+    ).toHaveCount(0);
+    await browserExpect(
+      page.getByText("Could not sign out", { exact: false }),
+    ).toHaveCount(0);
+  },
+);
+
+it("Profile hides stale identity when logout and canonical session revalidation fail, then retries", async () => {
+  await login();
+  await page.goto(origin + "/profile");
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+  await context.route("**/api/auth/logout", (route) =>
+    route.fulfill({ status: 503, json: { error: "unavailable" } }),
+  );
+  await context.route("**/api/auth/get-session?**", (route) =>
+    route.fulfill({ status: 503, json: { error: "unavailable" } }),
+  );
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await browserExpect(page.locator("main").getByRole("alert")).toContainText(
+    "Could not confirm your session status",
+  );
+  await browserExpect(page).toHaveURL(origin + "/profile");
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toHaveCount(0);
+  await browserExpect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toHaveCount(0);
+  await context.unroute("**/api/auth/get-session?**");
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(page.locator("main").getByRole("alert")).toHaveCount(0);
+  await context.unroute("**/api/auth/logout");
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await browserExpect(page).toHaveURL(origin + "/login");
 });
