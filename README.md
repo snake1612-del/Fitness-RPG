@@ -24,16 +24,16 @@ The MVP focuses on gym resistance training and tracks performed Sets using load 
 
 ## Current status
 
-The MVP v0.1 product, Training, Gamification and Architecture semantics have completed documentation freeze.
+The functional MVP v0.1 is implemented, reviewed and accepted across LOCAL and
+hosted Neon/Vercel environments.
 
-The first usable workout, repeatable workout flow, Finished Session corrections
-and Previous Performance are implemented through reviewed slices.
+Accepted MVP capabilities include Planning and the Workout lifecycle, History,
+Finished Session corrections, Previous Performance, Progress, XP & Level,
+Character v0.1 and Profile v0.1.
 
-LOCAL uses plain Docker PostgreSQL 17 with Better Auth and Next.js. The hosted
-Neon Pilot has passed real Auth, PostgreSQL and browser acceptance, including
-cold wake. Progress Foundation has passed independent review, LOCAL and hosted
-acceptance. XP & Level Foundation has passed independent review and hosted
-acceptance. Character v0.1 is implemented for independent review with LOCAL acceptance.
+LOCAL uses plain Docker PostgreSQL 17 with Better Auth and Next.js. HOSTED uses
+Neon PostgreSQL 17 with Better Auth and Vercel and has passed real Auth,
+PostgreSQL and browser acceptance, including cold wake.
 
 ## Chosen stack
 
@@ -62,16 +62,13 @@ Canonical project specifications:
 
 When implementation behavior conflicts with these documents, the conflict should be resolved explicitly rather than silently introducing a new product or architecture decision.
 
-## Development phase
+## MVP v0.1 release baseline
 
-Current phase:
+MVP v0.1 functional scope is implemented, reviewed and accepted.
 
-```text
-Documentation Freeze v0.1
-→ Controlled MVP Implementation
-```
-
-Implementation should proceed through small vertical slices rather than attempting the full workout loop in one PR.
+The frozen Product, Training, Gamification and Architecture specifications remain
+the source of truth for MVP v0.1. Further product scope is Post-MVP unless
+explicitly approved separately.
 
 Current local setup and hosted runtime boundaries are documented below.
 
@@ -285,13 +282,13 @@ production repositories, including route-handler composition, rollback and
 snapshot-independent History. Real LOCAL independent-connection checks and
 hosted Neon browser/runtime acceptance complement these fixture tests.
 
-## First usable workout UI / pilot (PR #4B)
+## MVP application workflow
 
-The mobile UI uses the Planning and Workout APIs. Later reviewed slices add
-history-derived rotation, session-only Exercises, Skip/Undo, Finished corrections
-and Previous Performance. Progress Foundation adds a read-only `/progress` screen;
-XP & Level Foundation provides a derived read API; `/character` presents its
-Level, Total XP and progress with visual milestones 1, 3, 5, 10 and 20.
+The mobile-first MVP includes Planning, the Workout lifecycle, History,
+Finished Session corrections, Previous Performance, Progress, XP & Level,
+Character v0.1 and Profile v0.1. Training uses the existing Planning and Workout
+APIs; Progress, XP & Level and Character present derived canonical history.
+Profile is a separate account/session surface.
 
 - `/login`: email/password login for an existing Better Auth account.
   `POST /api/auth/login` and `POST /api/auth/logout` use the Better Auth HTTP handler and forward cookies; credentials remain outside URLs. Auth actions require the
@@ -311,6 +308,11 @@ Level, Total XP and progress with visual milestones 1, 3, 5, 10 and 20.
   confirmation. A finished result opens `/history/:id`; Cancel is not History.
 - `/history` lists only Finished Sessions. Detail renders saved snapshots and
   actual Sets without performance analytics or XP.
+- `/progress`: Training Overview and Exercise Progress derived from saved History.
+- `/character`: Level, Total XP, progress to next Level and visual milestones
+  1, 3, 5, 10 and 20 from the existing Gamification API.
+- `/profile`: existing account identity and Sign out, accessed through the neutral
+  account icon in the Home header. Profile is not a bottom-navigation destination.
 
 Refresh/reload reads canonical server state. A synchronous submission lock avoids
 duplicate clicks while saving. Draft creation persists a UUID in sessionStorage
@@ -401,8 +403,10 @@ Corrections recompute the projection on the next read; editing remains in Histor
 Focused tests cover calendar/decimal boundaries, eligibility, ties, corrections,
 SESSION_ONLY reassignment/deletion, last eight and ownership. `REAL_LOCAL_AUTH=true`
 runs the same relational cases against isolated plain PostgreSQL 17 databases,
-alongside real Better Auth integration. Hosted acceptance of this feature follows
-independent review and merge; this PR does not deploy or change hosted resources.
+alongside real Better Auth integration.
+
+Progress has passed independent review, LOCAL acceptance and hosted
+Neon/Vercel acceptance.
 
 ## XP & Level Foundation developer workflow
 
@@ -425,5 +429,7 @@ Domain/internal application results include per-Session P/W/C/candidate/award
 for tests; public API exposes only the bounded summary. Ownership comes from
 Better Auth via AuthIdentityProvider. There is no Gamification write API, migration 0009
 or new dependency; canonical migrations remain 0000–0008. Focused cases also run
-on real LOCAL PostgreSQL with `REAL_LOCAL_AUTH=true`. Hosted XP acceptance follows
-independent review and merge. Finished corrections do not add generic Uncomplete.
+on real LOCAL PostgreSQL with `REAL_LOCAL_AUTH=true`.
+
+XP & Level has passed independent review and hosted Neon/Vercel acceptance.
+Finished corrections do not add generic Uncomplete.

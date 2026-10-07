@@ -1,6 +1,6 @@
 # Fitness RPG — Decisions
 
-**Status:** Frozen for MVP v0.1 implementation
+**Status:** Frozen for MVP v0.1
 
 This document is the concise register of durable product, training, gamification and architecture decisions.
 
