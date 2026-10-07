@@ -15,9 +15,10 @@ import { CorrectionEditor } from "./correction-editor";
 import { PreviousPerformanceView } from "./previous-performance";
 import type { PreviousPerformances } from "@/domain/training/previous-performance";
 import { ProgressScreen } from "./progress";
+import { CharacterScreen } from "./character";
 
 export type Screen =
-  "home" | "login" | "setup" | "workout" | "history" | "progress";
+  "home" | "login" | "setup" | "workout" | "history" | "progress" | "character";
 type Detail = JsonDates<WorkoutDetail>;
 type Data = {
   userId: string;
@@ -60,10 +61,10 @@ export function Tracker({
     }
     const [plan, active, programs, exercises, history, detail, next] =
       await Promise.all([
-        screen === "progress"
+        screen === "progress" || screen === "character"
           ? Promise.resolve(null)
           : api<ProgramPlan | null>("/api/programs/active"),
-        screen === "progress"
+        screen === "progress" || screen === "character"
           ? Promise.resolve(null)
           : api<Detail | null>("/api/sessions/active"),
         screen === "setup"
@@ -321,7 +322,7 @@ export function Tracker({
           </section>
         ) : (
           <>
-            {screen !== "progress" && (
+            {screen !== "progress" && screen !== "character" && (
               <div className="page-tools">
                 <button
                   className="quiet"
@@ -666,6 +667,7 @@ export function Tracker({
           </>
         )}
         {data && screen === "progress" && <ProgressScreen />}
+        {data && screen === "character" && <CharacterScreen />}
       </main>
       {data && (
         <nav className="bottom-nav" aria-label="Main navigation">
@@ -695,6 +697,12 @@ export function Tracker({
             aria-current={screen === "progress" ? "page" : undefined}
           >
             Progress
+          </Link>
+          <Link
+            href="/character"
+            aria-current={screen === "character" ? "page" : undefined}
+          >
+            Character
           </Link>
         </nav>
       )}
