@@ -56,6 +56,10 @@ vi.mock("@/server/training/progress-application", () => ({
   getProgressApplication: () =>
     createProgressApplication(createProgressRepository(db.database)),
 }));
+vi.mock("@/server/gamification/application", () => ({
+  getGamificationApplication: () =>
+    createGamificationApplication(createGamificationRepository(db.database)),
+}));
 vi.mock("@/server/db/runtime", () => ({
   getDatabaseReadinessGateway: () => ({
     check: async () => {
@@ -66,6 +70,11 @@ vi.mock("@/server/db/runtime", () => ({
 import { planningDatabase } from "@/test/planning-database";
 import { createProgressApplication } from "@/application/training/progress";
 import { createProgressRepository } from "@/server/training/progress-repository";
+import { createGamificationApplication } from "@/application/gamification";
+import { createGamificationRepository } from "@/server/gamification/repository";
+import { createExecutionApplication } from "@/application/training/execution";
+import { createExecutionRepository } from "@/server/training/execution-repository";
+import * as gamification from "@/app/api/gamification/route";
 import * as progress from "@/app/api/progress/route";
 import * as authLogin from "@/app/api/auth/login/route";
 import * as authLogout from "@/app/api/auth/logout/route";
@@ -113,6 +122,7 @@ type Handler = (
 ) => Response | Promise<Response>;
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 const routes: [RegExp, Partial<Record<Method, Handler>>][] = [
+  [/^\/api\/gamification$/, gamification],
   [/^\/api\/progress$/, progress],
   [/^\/api\/auth\/login$/, authLogin],
   [/^\/api\/auth\/logout$/, authLogout],
@@ -275,6 +285,181 @@ async function seed() {
     },
   });
 }
+it("Character navigation presents actual zero-history API values and reloads", async () => {
+  await login();
+  await page.getByRole("link", { name: "Character", exact: true }).click();
+  await browserExpect(page).toHaveURL(origin + "/character");
+  await browserExpect(page.getByText("Level 1", { exact: true })).toBeVisible();
+  await browserExpect(
+    page.getByText("0 / 100 XP", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(
+    page.getByText("100 XP remaining", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(page.getByLabel("Your Character")).toContainText(
+    "0 Total XP",
+  );
+  await browserExpect(page.getByLabel("Visual milestones")).toContainText(
+    "Level 1 · Foundation",
+  );
+  await browserExpect(page.getByLabel("Visual milestones")).toContainText(
+    "Level 3 · Form",
+  );
+  await browserExpect(
+    page.getByRole("link", { name: "Character", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await browserExpect(page.getByRole("progressbar")).toHaveAttribute(
+    "value",
+    "0",
+  );
+  await page.reload();
+  await browserExpect(page.getByText("Level 1", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 812 });
+  expect(
+    await page.locator(".bottom-nav a").evaluateAll((links) =>
+      links.every((link) => {
+        const range = document.createRange();
+        range.selectNodeContents(link);
+        const text = range.getBoundingClientRect(),
+          cell = link.getBoundingClientRect();
+        return text.left >= cell.left && text.right <= cell.right;
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+it("Character loading/error never show fake or stale XP; retry recovers", async () => {
+  await login();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await context.route("**/api/gamification", async (route) => {
+    await gate;
+    await transport(route);
+  });
+  await page.getByRole("link", { name: "Character", exact: true }).click();
+  await browserExpect(page.getByRole("status")).toHaveText(
+    "Loading Character…",
+  );
+  await browserExpect(page.getByLabel("Your Character")).toHaveCount(0);
+  await browserExpect(page.getByText("Level 1", { exact: true })).toHaveCount(
+    0,
+  );
+  release();
+  await browserExpect(page.getByText("Level 1", { exact: true })).toBeVisible();
+  unavailable = true;
+  await page.getByRole("button", { name: "Refresh Character" }).click();
+  await browserExpect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Could not load your Character" }),
+  ).toContainText("Could not load your Character");
+  await browserExpect(page.getByLabel("Your Character")).toHaveCount(0);
+  await browserExpect(page.getByRole("progressbar")).toHaveCount(0);
+  unavailable = false;
+  await page.getByRole("button", { name: "Refresh Character" }).click();
+  await browserExpect(page.getByText("Level 1", { exact: true })).toBeVisible();
+});
+it("Character upgrades and downgrades with canonical correction-driven Gamification", async () => {
+  const exercise = await db.app.createExercise(userId, {
+    name: "Character Press",
+    loadType: "WEIGHTED",
+  });
+  const plan = await db.app.createProgram(userId, {
+    name: "Character pilot",
+    initialTemplate: {
+      name: "A",
+      exercises: [
+        {
+          exerciseId: exercise.id,
+          targetWorkingSets: 2,
+          targetRepsMin: 1,
+          targetRepsMax: 10,
+        },
+      ],
+    },
+  });
+  let date = new Date("2026-10-01T12:00:00Z");
+  const execution = createExecutionApplication(
+    createExecutionRepository(db.database),
+    () => date,
+  );
+  async function finishDay(day: number) {
+    date = new Date(`2026-10-0${day}T12:00:00Z`);
+    const session = (
+      await db.workouts.start(userId, { templateId: plan.templates[0].id })
+    ).session;
+    const sets = [];
+    for (let i = 0; i < 2; i++) {
+      const s = await execution.createSet(userId, session.exercises[0].id, {
+        id: randomUUID(),
+        loadKg: "20",
+        reps: 8,
+        type: "WORKING",
+      });
+      await execution.completeSet(userId, s.id);
+      sets.push(s);
+    }
+    await execution.finish(userId, session.id, { timeZone: "UTC" });
+    return { session, sets };
+  }
+  await finishDay(1);
+  await finishDay(2);
+  await login();
+  await page.getByRole("link", { name: "Character", exact: true }).click();
+  await browserExpect(page.getByText("Level 2", { exact: true })).toBeVisible();
+  await browserExpect(page.locator(".character-content")).toHaveAttribute(
+    "data-stage",
+    "1",
+  );
+  const third = await finishDay(3);
+  await page.getByRole("button", { name: "Refresh Character" }).click();
+  await browserExpect(page.getByText("Level 3", { exact: true })).toBeVisible();
+  await browserExpect(
+    page.getByText("75 / 150 XP", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(page.getByLabel("Your Character")).toContainText(
+    "300 Total XP",
+  );
+  await browserExpect(page.locator(".character-content")).toHaveAttribute(
+    "data-stage",
+    "3",
+  );
+  await browserExpect(page.getByLabel("Visual milestones")).toContainText(
+    "Level 5 · Momentum",
+  );
+  await db.corrections.correct(userId, third.session.id, {
+    expected_revision: 0,
+    setEdits: [
+      {
+        id: third.sets[0].id,
+        type: "WARM_UP",
+        loadKg: "20",
+        reps: 8,
+        rir: null,
+      },
+    ],
+  });
+  await page.getByRole("button", { name: "Refresh Character" }).click();
+  await browserExpect(page.getByText("Level 2", { exact: true })).toBeVisible();
+  await browserExpect(page.locator(".character-content")).toHaveAttribute(
+    "data-stage",
+    "1",
+  );
+  await browserExpect(
+    page.getByText("100 / 125 XP", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await browserExpect(page.locator(".character-content")).toHaveAttribute(
+    "data-stage",
+    "1",
+  );
+});
 it("Progress overview, all load types, archived selector, correction refresh and reload are read-only", async () => {
   const definitions = await Promise.all(
     (["WEIGHTED", "BODYWEIGHT", "ASSISTED_BODYWEIGHT"] as const).map(

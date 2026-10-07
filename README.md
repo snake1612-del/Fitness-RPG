@@ -32,8 +32,8 @@ and Previous Performance are implemented through reviewed slices.
 LOCAL uses plain Docker PostgreSQL 17 with Better Auth and Next.js. The hosted
 Neon Pilot has passed real Auth, PostgreSQL and browser acceptance, including
 cold wake. Progress Foundation has passed independent review, LOCAL and hosted
-acceptance. XP & Level Foundation has passed LOCAL acceptance and is ready for
-independent review; Character remains later work.
+acceptance. XP & Level Foundation has passed independent review and hosted
+acceptance. Character v0.1 is implemented for independent review with LOCAL acceptance.
 
 ## Chosen stack
 
@@ -272,7 +272,7 @@ History uses only saved snapshot/Set facts. Its list returns Session headers;
 detail returns the full aggregate. Cancelled/ACTIVE Sessions are excluded from
 completed History (detail returns 404). History supplies the Finished facts used
 by rotation, Previous Performance, derived Progress Foundation and XP & Level
-Foundation. Character UI remains outside the current implementation.
+Foundation and the derived Character v0.1 presentation.
 
 Migrations `0004_workout_execution.sql` and
 `0005_workout_execution_integrity.sql` add Set/lifecycle fields, the Finish order
@@ -290,8 +290,8 @@ hosted Neon browser/runtime acceptance complement these fixture tests.
 The mobile UI uses the Planning and Workout APIs. Later reviewed slices add
 history-derived rotation, session-only Exercises, Skip/Undo, Finished corrections
 and Previous Performance. Progress Foundation adds a read-only `/progress` screen;
-XP & Level Foundation provides a derived read API; Character UI remains outside
-the current implementation.
+XP & Level Foundation provides a derived read API; `/character` presents its
+Level, Total XP and progress with visual milestones 1, 3, 5, 10 and 20.
 
 - `/login`: email/password login for an existing Better Auth account.
   `POST /api/auth/login` and `POST /api/auth/logout` use the Better Auth HTTP handler and forward cookies; credentials remain outside URLs. Auth actions require the
@@ -423,7 +423,7 @@ Level requirements grow from 100 by 25 to a 500 cap, with no maximum Level.
 
 Domain/internal application results include per-Session P/W/C/candidate/award
 for tests; public API exposes only the bounded summary. Ownership comes from
-Better Auth via AuthIdentityProvider. There is no Gamification UI, migration 0009
+Better Auth via AuthIdentityProvider. There is no Gamification write API, migration 0009
 or new dependency; canonical migrations remain 0000–0008. Focused cases also run
 on real LOCAL PostgreSQL with `REAL_LOCAL_AUTH=true`. Hosted XP acceptance follows
 independent review and merge. Finished corrections do not add generic Uncomplete.
