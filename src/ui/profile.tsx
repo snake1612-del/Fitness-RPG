@@ -26,12 +26,15 @@ export function ProfileScreen() {
   const [loadError, setLoadError] = useState(false);
   const [pending, setPending] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
+  const [sessionStatusError, setSessionStatusError] = useState(false);
   const mounted = useRef(false);
   const locked = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
+    setSessionStatusError(false);
+    setSignOutError(false);
     setAccount(null);
     try {
       const session = await api<Session>(
@@ -58,6 +61,14 @@ export function ProfileScreen() {
     };
   }, [load]);
 
+  function clearSession() {
+    sessionStorage.clear();
+    if (mounted.current) {
+      setAccount(null);
+      router.replace("/login");
+    }
+  }
+
   async function signOut() {
     if (locked.current || !account) return;
     locked.current = true;
@@ -65,13 +76,26 @@ export function ProfileScreen() {
     setSignOutError(false);
     try {
       await api("/api/auth/logout", "POST");
-      sessionStorage.clear();
-      if (mounted.current) {
-        setAccount(null);
-        router.replace("/login");
-      }
+      clearSession();
     } catch {
-      if (mounted.current) setSignOutError(true);
+      if (!mounted.current) return;
+      // A failed response does not prove that the server kept the session.
+      setAccount(null);
+      setLoading(true);
+      try {
+        const session = await api<Session>(
+          "/api/auth/get-session?disableCookieCache=true",
+        );
+        if (!mounted.current) return;
+        if (session) {
+          setAccount(session.user);
+          setSignOutError(true);
+        } else clearSession();
+      } catch {
+        if (mounted.current) setSessionStatusError(true);
+      } finally {
+        if (mounted.current) setLoading(false);
+      }
     } finally {
       locked.current = false;
       if (mounted.current) setPending(false);
@@ -98,9 +122,13 @@ export function ProfileScreen() {
               <span />
               <span />
             </div>
-          ) : loadError ? (
+          ) : loadError || sessionStatusError ? (
             <>
-              <p role="alert">Could not load your account. Please try again.</p>
+              <p role="alert">
+                {sessionStatusError
+                  ? "Could not confirm your session status. Retry to check whether you are signed in."
+                  : "Could not load your account. Please try again."}
+              </p>
               <button className="secondary" onClick={() => void load()}>
                 Retry
               </button>

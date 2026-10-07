@@ -1576,3 +1576,75 @@ it("Profile failed sign out stays on Profile and prevents duplicate pending requ
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await browserExpect(page).toHaveURL(origin + "/login");
 });
+
+it.each(["lost", "invalid"])(
+  "Profile revalidates a revoked session after a %s logout response",
+  async (failure) => {
+    await login();
+    await page.goto(origin + "/profile");
+    await browserExpect(
+      page.getByText("pilot@example.test", { exact: true }),
+    ).toBeVisible();
+    await context.route("**/api/auth/logout", async (route) => {
+      const incoming = route.request();
+      const response = await authLogout.POST(
+        new Request(incoming.url(), {
+          method: "POST",
+          headers: incoming.headers(),
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect(loggedIn).toBe(false);
+      if (failure === "lost") await route.abort("failed");
+      else await route.fulfill({ status: 200, body: "not valid JSON" });
+    });
+    let sessionReads = 0;
+    await context.route("**/api/auth/get-session?**", async (route) => {
+      sessionReads++;
+      await transport(route);
+    });
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await browserExpect(page).toHaveURL(origin + "/login");
+    expect(sessionReads).toBe(1);
+    await browserExpect(
+      page.getByText("pilot@example.test", { exact: true }),
+    ).toHaveCount(0);
+    await browserExpect(
+      page.getByText("Could not sign out", { exact: false }),
+    ).toHaveCount(0);
+  },
+);
+
+it("Profile hides stale identity when logout and canonical session revalidation fail, then retries", async () => {
+  await login();
+  await page.goto(origin + "/profile");
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+  await context.route("**/api/auth/logout", (route) =>
+    route.fulfill({ status: 503, json: { error: "unavailable" } }),
+  );
+  await context.route("**/api/auth/get-session?**", (route) =>
+    route.fulfill({ status: 503, json: { error: "unavailable" } }),
+  );
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await browserExpect(page.locator("main").getByRole("alert")).toContainText(
+    "Could not confirm your session status",
+  );
+  await browserExpect(page).toHaveURL(origin + "/profile");
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toHaveCount(0);
+  await browserExpect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toHaveCount(0);
+  await context.unroute("**/api/auth/get-session?**");
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await browserExpect(
+    page.getByText("pilot@example.test", { exact: true }),
+  ).toBeVisible();
+  await browserExpect(page.locator("main").getByRole("alert")).toHaveCount(0);
+  await context.unroute("**/api/auth/logout");
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await browserExpect(page).toHaveURL(origin + "/login");
+});
