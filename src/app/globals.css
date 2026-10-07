@@ -520,3 +520,37 @@ fieldset {
   place-items: center;
   color: var(--muted);
 }
+
+.profile-link {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--muted);
+}
+.profile-link svg {
+  width: 24px;
+  height: 24px;
+}
+.profile-account {
+  margin-top: 24px;
+}
+.account-name {
+  font-weight: 700;
+}
+.account-skeleton {
+  padding: 8px 0 16px;
+}
+.account-skeleton span {
+  display: block;
+  background: #2b3543;
+  border-radius: 6px;
+  height: 16px;
+  width: 65%;
+  margin-bottom: 12px;
+}
+.account-skeleton span:first-child {
+  width: 40%;
+}
